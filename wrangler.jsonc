@@ -1,0 +1,89 @@
+/**
+ * elc-trade — the agent-tradable service layer for engineeringleaders.io.
+ *
+ * Two transports over one service core (src/core/):
+ *   engineeringleaders.io/mcp/trade*  — MCP tools, where the buyers actually are
+ *   engineeringleaders.io/a2a*        — a real A2A v1.0 JSON-RPC server
+ *
+ * Route nesting is load-bearing and matches the existing convention: /mcp* belongs to
+ * elc-toolkit, /mcp/partnership* to elc-partnership-builder, /mcp/trade* here, all by
+ * Cloudflare's most-specific-pattern rule. No router change in elc-web is needed.
+ *
+ * The agent card is NOT served from here. elc-web's assets binding shadows /.well-known/*,
+ * so the card stays a static file in elc-web/public/.well-known/, generated at build time
+ * by scripts/gen-agent-card.mjs from the same service registry this Worker uses.
+ *
+ * See strategy/08-a2a-agent-trading.md.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "elc-trade",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-04",
+	// nodejs_compat: @a2a-js/sdk is Workers-safe (its own CI bundles --platform=neutral and
+	// runs a Miniflare suite), but Part.fromJSON uses Buffer.from on the base64 file branch.
+	// We are text/JSON only today; the flag is cheap insurance against a future file part.
+	"compatibility_flags": ["nodejs_compat"],
+	"routes": [
+		{ "pattern": "www.engineeringleaders.io/mcp/trade*", "zone_name": "engineeringleaders.io" },
+		{ "pattern": "engineeringleaders.io/mcp/trade*", "zone_name": "engineeringleaders.io" },
+		{ "pattern": "www.engineeringleaders.io/a2a*", "zone_name": "engineeringleaders.io" },
+		{ "pattern": "engineeringleaders.io/a2a*", "zone_name": "engineeringleaders.io" },
+	],
+	"migrations": [
+		{
+			"new_sqlite_classes": ["ElcTrade"],
+			"tag": "v1",
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "ElcTrade",
+				"name": "MCP_OBJECT",
+			},
+		],
+	},
+	// Service bindings, not fetch() over the public hostname.
+	//
+	// 2026-09-04: the first production deploy proved why. A Worker subrequest to its own
+	// zone leaves the isolate, comes back in through the edge, and is evaluated by the
+	// zone's bot/WAF rules like any other client — which returned HTTP 403 and broke every
+	// bridged skill. Local `wrangler dev` cannot reproduce it, because there is no edge.
+	//
+	// A service binding is worker-to-worker inside Cloudflare: no DNS, no TLS, no edge, no
+	// WAF, no billable subrequest, and lower latency.
+	"services": [
+		{ "binding": "TOOLKIT", "service": "elc-toolkit" },
+		{ "binding": "PARTNERSHIP", "service": "elc-partnership-builder" },
+	],
+	"kv_namespaces": [
+		// Shared with all five existing MCP servers — session stitching for Slack threading.
+		{
+			"binding": "MCP_SESSIONS",
+			"id": "f459fd36614740fcbe313953349d7776",
+		},
+	],
+	"vars": {
+		// Channel IDs are vars, never secrets, and always IDs — a rename silently breaks a
+		// name-based reference. MCP_USAGE_SLACK_CHANNEL is the existing #web-mcp-usage-bot;
+		// A2A_TRADE_SLACK_CHANNEL is the new deal channel and is filled in once Marian has
+		// created it and invited @elc_member_bot.
+		"MCP_USAGE_SLACK_CHANNEL": "C0BT1NAH0KU",
+		// #agent-deals-bot. Deals only — every tool call already goes to #web-mcp-usage-bot
+		// via the shared mcp-usage.ts, and mixing a €4,000 booking into a stream of scanner
+		// pings is how the one message that matters gets missed.
+		"A2A_TRADE_SLACK_CHANNEL": "C0BUX9AP9V3",
+		// Kill switch for post_li_post. Ships off, exactly like SENDING_ENABLED in the
+		// LinkedIn connect pipeline. Nothing reaches LinkedIn until this is "1".
+		"LI_POST_ENABLED": "0",
+		// Paid-route switch. Ships off; flipped once the Stripe crypto deposit address
+		// exists and the route has been validated end to end on testnet.
+		"PAID_ROUTE_ENABLED": "0",
+		// CAIP-2. eip155:84532 = Base Sepolia (testnet), eip155:8453 = Base mainnet.
+		"X402_NETWORK": "eip155:84532",
+	},
+	"observability": {
+		"enabled": true,
+	},
+}
