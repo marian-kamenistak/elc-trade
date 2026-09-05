@@ -70,7 +70,7 @@
 		// A2A_TRADE_SLACK_CHANNEL is the new deal channel and is filled in once Marian has
 		// created it and invited @elc_member_bot.
 		"MCP_USAGE_SLACK_CHANNEL": "C0BT1NAH0KU",
-		// #agent-deals-bot. Deals only — every tool call already goes to #web-mcp-usage-bot
+		// #web-a2a-bot (Marian named it; C0BUX9AP9V3). Deals only — every tool call already goes to #web-mcp-usage-bot
 		// via the shared mcp-usage.ts, and mixing a €4,000 booking into a stream of scanner
 		// pings is how the one message that matters gets missed.
 		"A2A_TRADE_SLACK_CHANNEL": "C0BUX9AP9V3",

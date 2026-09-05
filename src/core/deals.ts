@@ -1,5 +1,5 @@
 /**
- * #agent-deals-bot — the low-volume channel.
+ * #web-a2a-bot — the low-volume channel.
  *
  * Every tool call already goes to #web-mcp-usage-bot via the shared mcp-usage.ts. This is
  * deliberately NOT that: it fires only when an agent shows commercial intent, so any
