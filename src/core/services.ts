@@ -55,6 +55,49 @@ const email = z.string().email().describe("Contact email for the requesting orga
 const company = z.string().min(1).describe("The organisation on whose behalf the agent is acting.");
 
 export const SERVICES: ServiceDefinition[] = [
+	/**
+	 * The front door. FIRST in the list on purpose — this is the order `tools/list`, the agent
+	 * card and the harness menu all render in.
+	 *
+	 * A `get_started` tool existed on the MCP transport only, registered by hand in index.ts,
+	 * so it was absent from the agent card and from the harness. The consequence, found in
+	 * persona testing: a newly promoted engineering manager opened the tool list, saw six
+	 * seller-side tools, concluded "nothing in it is for me" and quit before making a single
+	 * call — while the thing he wanted (free membership) was sitting one clause deep inside a
+	 * tool called `build_partnership_business_case`. Declaring it here is what puts it on all
+	 * three surfaces, which is the rule this registry exists to enforce.
+	 *
+	 * `context` is optional free text because the same tester typed his actual problem into an
+	 * enum field and got a validation error back. A router is the right place to accept a
+	 * sentence: worst case it returns the whole menu, which is what he needed anyway.
+	 */
+	{
+		id: "get_started",
+		title: "Start here — what is this, and which tool answers my question?",
+		description:
+			"START HERE for a greeting (hi, hello), a connectivity or liveness test, 'what can you do', or any question too general to match a specific tool. Also the right call when the caller is a person rather than a company: ELC membership is free for engineering leaders and this says so. Pass their message as `context` and it routes to the tool that fits, or returns the full menu.",
+		tags: ["getting-started", "help", "routing", "community"],
+		examples: [
+			"hi",
+			"what can you do?",
+			"My team is struggling and I want to be a better manager.",
+			"I want to reach engineering leaders in Prague.",
+		],
+		kind: "judgment",
+		price: { model: "free" },
+		fulfilment: "immediate",
+		site: "elc",
+		sourcePath: "/agents/",
+		inputSchema: {
+			context: z
+				.string()
+				.optional()
+				.describe(
+					"Optional: the caller's message in their own words — a greeting, a liveness test, or a plain description of what they are trying to do. Anything is accepted; there is no wrong value.",
+				),
+		},
+	},
+
 	// ─── Tier 1: ready now ────────────────────────────────────────────────────
 	{
 		id: "buy_reach",
@@ -70,7 +113,7 @@ export const SERVICES: ServiceDefinition[] = [
 		price: { model: "quote", fromEur: 500 },
 		fulfilment: "human_review",
 		site: "elc",
-		sourcePath: "/partner/reach/",
+		sourcePath: "/reach/",
 		// Bridged, never reimplemented. quote_reach_combo recomputes prices server-side from
 		// the generated offer-catalog.json that offers:sync writes from catalog.yaml, and
 		// applies the combo-discount rules. A local quote here would be a second source of
@@ -81,6 +124,14 @@ export const SERVICES: ServiceDefinition[] = [
 				.array(z.enum(ONEOFF_IDS))
 				.min(1)
 				.describe("Which one-off reach items to quote. One or more of: newsletter-section, newsletter-dedicated, meetup-hosted, podcast-episode, dinner, survey, demo-session, linkedin-post, job-listing. Combo discount applies automatically."),
+			// The tool that knew the prices could not take a budget, and the tool that took a
+			// budget would not name a price, so "what fits in 18,000?" was unanswerable across
+			// the whole surface. Advisory only: it never changes a price, it says what fits.
+			budget_eur: z
+				.number()
+				.min(0)
+				.optional()
+				.describe("Optional: what you have to spend. Does not change any price — the quote will say whether the cart fits and what to drop if it does not."),
 		},
 	},
 
@@ -92,7 +143,11 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "benchmark_leadership_ratio",
 		title: "Benchmark your manager-to-senior-IC ratio",
 		description:
-			"Answers 'is my engineering org top-heavy?' Compares a company's manager-versus-senior-IC split against the ELC community's own composition, computed from 3,300+ CEE engineering leaders, and returns each side's percentage, the delta and a verdict.",
+			// 2026-09-05: this promised "the delta and a verdict" against a peer baseline. The tool
+			// deliberately refuses both — ELC's shares are of the whole member base and total 90,
+			// not 100, so they cannot be subtracted from a caller's two-way split. Three personas
+			// caught the description selling a comparison the tool correctly declines to make.
+			"Answers 'what shape is my engineering org, and what should I ask about it?' Returns your manager-versus-senior-IC percentages and the resulting span (1 manager per N senior ICs), plus the question that shape usually raises. ELC's own community composition is shown alongside as context only — different denominator, so no delta and no score is computed against it.",
 		tags: ["benchmarks", "engineering-management", "org-design", "data"],
 		examples: [
 			"We have 10 managers and 30 senior engineers. Is that healthy?",
@@ -133,9 +188,12 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "build_partnership_business_case",
 		title: "Build the internal case for an ELC partnership",
 		description:
-			"Answers 'how do I justify a community partnership budget internally?' Returns real reach numbers, framing specific to the goal (hiring, brand, product feedback or thought leadership), the published price range, and a forwardable approval email.",
+			"Answers 'how do I justify a community partnership budget internally?' Returns real reach numbers, the deliverables that serve the stated goal, where a proposed budget lands on the published ladder, and a forwardable approval email. Goals: hiring, brand_awareness, product_feedback, thought_leadership, people_development (developing your own engineering leaders — mentoring, Academy seats, the peer network). Set buying_for=individual if you are a person rather than a company: ELC membership is free for engineering leaders and no business case is needed.",
 		tags: ["business-case", "partnership", "procurement", "budget"],
-		examples: ["How do I convince my CFO to fund an ELC partnership for hiring?"],
+		examples: [
+			"How do I convince my CFO to fund an ELC partnership for hiring?",
+			"My twelve engineering managers have had no external development in two years.",
+		],
 		kind: "judgment",
 		price: { model: "free" },
 		fulfilment: "immediate",
@@ -143,13 +201,60 @@ export const SERVICES: ServiceDefinition[] = [
 		sourcePath: "/partner/",
 		bridge: { endpoint: "toolkit", tool: "build_partnership_business_case" },
 		inputSchema: {
-			goal: z.string().describe("hiring, brand, product feedback, or thought leadership."),
-			company_name: z.string().optional(),
-			proposed_budget_eur: z.number().optional(),
+			// A real enum, not z.string(). As a bare string every value passed validation here and
+			// was rejected by the SIBLING instead, whose raw JSON-RPC -32602 frame bypassed this
+			// server's error formatter entirely. Three personas hit that dump; two named it as
+			// the moment they closed the tab. Mirroring the enum keeps the failure local, where
+			// InvalidArgumentsError can list the valid values in plain text.
+			goal: z
+				.enum([
+					"hiring",
+					"brand_awareness",
+					"product_feedback",
+					"thought_leadership",
+					"people_development",
+				])
+				.describe(
+					"The primary reason. people_development covers developing your own engineering leaders (mentoring, Academy seats, the peer network) — that is the one for retention and growth, not hiring.",
+				),
+			buying_for: z
+				.enum(["company", "individual", "one_off"])
+				.optional()
+				.describe(
+					"Who is buying. 'company' (default) builds the annual membership case. 'individual' means a person spending their own money — returns the free-membership route instead of an approval email. 'one_off' means one thing once, not a year, and routes to buy_reach.",
+				),
+			company_name: z.string().optional().describe("The company considering the membership."),
+			proposed_budget_eur: z
+				.number()
+				.optional()
+				.describe("A proposed budget in EUR. 0 is valid and routes to the free membership layer."),
+			approver_name: z.string().optional().describe("Who the approval email is addressed to."),
+			sender_name: z.string().optional().describe("Who the approval email is signed by."),
 		},
 	},
 
-	// ─── Tier 2: judgment services ────────────────────────────────────────────
+	// ─── Tier 2: judgment services — WITHHELD 2026-09-05 ──────────────────────
+	//
+	// Marian's call after three rounds of persona testing. Both tools are deterministic keyword
+	// scorers being asked to do semantic work, and across the three rounds testers defeated them
+	// a different way each time:
+	//   - a one-character "?" lifted a known-bad title a whole band, because "provocative
+	//     question" is `endsWith("?")`;
+	//   - writing a real abstract LOWERED the verdict, so withholding information scored better;
+	//   - "I am not selling anything" read as selling intent, blocking an honest engineer at
+	//     Tier 3 while deleting the denial scored Tier 1 — a denial read as a confession;
+	//   - a Czech-language sales pitch passed both tools untouched, in ELC's own core language;
+	//   - "spoke at three international conferences including QCon" scored zero prior talks.
+	// Each fix produced the same bug in a neighbouring check. The class of defect is the
+	// approach, not the patches.
+	//
+	// They are declared, not deleted: the scoring logic is sound where it is mechanical (title
+	// length, buzzwords, the formula list, the abstract word count) and that half is worth
+	// keeping. Reinstating them needs intent and evidence extracted by a model rather than a
+	// regex, which is a real piece of work and a deliberate trade of determinism for accuracy.
+	// Until then a caller gets an honest "not yet, and here is why" instead of a confident
+	// wrong verdict — which is the only thing worse than no verdict for someone choosing a
+	// speaker or a topic.
 	{
 		id: "evaluate_meetup_topic",
 		title: "Evaluate a meetup topic before you commit to it",
@@ -165,6 +270,8 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
+		withheld:
+			"The scorer reads keywords, not meaning, so it can be gamed and it can be wrong with confidence. A single '?' moved a known-bad title up a band; adding a real abstract made the verdict worse; and a Czech-language vendor pitch passed unflagged. Choosing a topic on a wrong-but-confident score is worse than choosing it yourself, so it is withheld until the judgment is model-backed rather than pattern-matched. The underlying guide is public: https://www.engineeringleaders.io/toolkit/",
 		inputSchema: {
 			title: z.string().min(3).describe("The proposed meetup or talk title."),
 			abstract: z.string().optional().describe("The abstract, if one exists yet."),
@@ -189,6 +296,8 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
+		withheld:
+			"The assessment infers evidence from prose by substring match, and that is not safe for a decision about a person. It credited a speaker with a recording they had explicitly said they do not have, read 'I am not selling anything' as selling intent and blocked an honest engineer, missed a Czech-language sales pitch entirely, and could not read 'spoke at three international conferences' as prior talks. Withheld until evidence extraction is model-backed. ELC's speaker pipeline is described at https://www.engineeringleaders.io/cfp/",
 		inputSchema: {
 			talk_title: z.string().min(3).describe("The proposed talk title."),
 			speaker_background: z
@@ -196,6 +305,16 @@ export const SERVICES: ServiceDefinition[] = [
 				.describe("Role, seniority, and any prior speaking experience."),
 			prior_talks: z.number().int().min(0).optional().describe("How many talks they have given."),
 			has_dry_run: z.boolean().optional().describe("Whether a rehearsal is scheduled."),
+			has_recording: z
+				.boolean()
+				.optional()
+				.describe(
+					"Whether a recording of them speaking exists. Pass it explicitly — inferring it from the background text cannot reliably read a denial like 'no recording'.",
+				),
+			writes_publicly: z
+				.boolean()
+				.optional()
+				.describe("Whether they publish writing — a blog, newsletter or regular posts."),
 		},
 	},
 
@@ -263,7 +382,7 @@ export const SERVICES: ServiceDefinition[] = [
 		price: { model: "quote", fromEur: 500 },
 		fulfilment: "human_review",
 		site: "elc",
-		sourcePath: "/partner/reach/",
+		sourcePath: "/reach/",
 		inputSchema: {
 			role_title: z.string().min(2),
 			company,
@@ -287,7 +406,7 @@ export const SERVICES: ServiceDefinition[] = [
 		// Not merely human_review: nothing happens at all without a third party's consent.
 		fulfilment: "consent_required",
 		site: "elc",
-		sourcePath: "/partner/reach/",
+		sourcePath: "/reach/",
 		inputSchema: {
 			who: z.string().min(10).describe("The kind of person you want to reach, and why."),
 			company,
@@ -312,7 +431,7 @@ export const SERVICES: ServiceDefinition[] = [
 		price: { model: "quote", fromEur: 500 },
 		fulfilment: "human_review",
 		site: "elc",
-		sourcePath: "/partner/reach/",
+		sourcePath: "/reach/",
 		inputSchema: {
 			account: z.enum(["elc", "marian"]).describe("Which profile the post should go out from."),
 			subject: z.string().min(10).describe("What the post should be about."),

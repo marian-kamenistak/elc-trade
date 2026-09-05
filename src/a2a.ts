@@ -34,7 +34,8 @@ import {
 	type ExecutionEventBus,
 	type RequestContext,
 } from "@a2a-js/sdk/server";
-import { dispatch } from "./core/dispatch";
+import { z } from "zod";
+import { dispatch, InvalidArgumentsError } from "./core/dispatch";
 import type { DispatchContext } from "./core/dispatch";
 import { LIVE_SERVICES } from "./core/services";
 import type { ServiceDefinition } from "./core/types";
@@ -44,6 +45,16 @@ export const A2A_PATH = "/a2a/v1";
 
 /** Our own namespace. A2A reserves a2a-protocol.org/extensions/* for official ones. */
 export const PRICING_EXTENSION_URI = `${ORIGIN}/extensions/pricing/v1`;
+
+/**
+ * A2A v1.0's `AgentSkill` has no `inputSchema` field — id, name, description, tags, examples,
+ * modes, security, and nothing else. So an agent reading the card could see that
+ * `evaluate_meetup_topic` exists but had no way to learn it takes `title` and `abstract` until
+ * it guessed wrong and read the error. Persona testing hit exactly that.
+ *
+ * Extensions carry arbitrary params, which is where a schema belongs. Same mechanism as pricing.
+ */
+export const SCHEMA_EXTENSION_URI = `${ORIGIN}/extensions/skill-schemas/v1`;
 
 function skillFrom(s: ServiceDefinition): AgentSkill {
 	return {
@@ -77,6 +88,16 @@ function pricingParams(): Record<string, unknown> {
 	};
 }
 
+/** JSON Schema per skill, derived from the same zod shapes dispatch validates against. */
+function schemaParams(): Record<string, unknown> {
+	return {
+		note: "JSON Schema (draft 2020-12) for each skill's arguments. IMPORTANT — these are the `args`, not the message body. Send the envelope {\"skill\": \"<id>\", \"args\": {...}} as JSON in the message text, or set `skill` and `args` in the message metadata. A bare args object without the envelope routes nowhere and its fields are dropped. Every field not marked required is optional.",
+		skills: Object.fromEntries(
+			LIVE_SERVICES.map((s) => [s.id, z.toJSONSchema(z.object(s.inputSchema))]),
+		),
+	};
+}
+
 export function buildAgentCard(): AgentCard {
 	return {
 		name: "Engineering Leaders Community",
@@ -106,6 +127,12 @@ export function buildAgentCard(): AgentCard {
 					description: "Per-skill list prices in EUR, excluding VAT.",
 					required: false,
 					params: pricingParams(),
+				},
+				{
+					uri: SCHEMA_EXTENSION_URI,
+					description: "JSON Schema for each skill's arguments.",
+					required: false,
+					params: schemaParams(),
 				},
 			],
 		},
@@ -152,13 +179,13 @@ const MENU = () =>
 		"",
 		"Address a skill by sending JSON, or by setting `skill` and `args` in the message metadata:",
 		"",
-		'```json\n{"skill": "evaluate_meetup_topic", "args": {"title": "Your title here"}}\n```',
+		'```json\n{"skill": "get_started", "args": {"context": "what can you do?"}}\n```',
 		"",
 		"## Skills",
 		"",
 		...LIVE_SERVICES.map((s) => `- \`${s.id}\` — ${s.description}`),
 		"",
-		`Prices are published in the agent card under the extension \`${PRICING_EXTENSION_URI}\`.`,
+		`The agent card at ${ORIGIN}/.well-known/agent-card.json publishes prices under the extension \`${PRICING_EXTENSION_URI}\`, and the JSON Schema for every skill's arguments under \`${SCHEMA_EXTENSION_URI}\`.`,
 	].join("\n");
 
 export class ElcTradeExecutor implements AgentExecutor {
@@ -233,9 +260,16 @@ export class ElcTradeExecutor implements AgentExecutor {
 			const result = await dispatch(skill, args, this.ctx);
 			reply(result.report, TaskState.TASK_STATE_COMPLETED);
 		} catch (err) {
+			// Bad arguments are recoverable: the caller named a real skill and can retry with
+			// the fields the error enumerates, so the task asks for input rather than dying.
+			// FAILED is reserved for a genuinely dead task — unknown skill, bridge down.
+			// The menu is only useful when the caller has not found the right skill yet;
+			// appending it to a field-level complaint buries the field-level complaint.
+			const recoverable = err instanceof InvalidArgumentsError;
+			const message = err instanceof Error ? err.message : String(err);
 			reply(
-				`${err instanceof Error ? err.message : String(err)}\n\n${MENU()}`,
-				TaskState.TASK_STATE_FAILED,
+				recoverable ? message : `${message}\n\n${MENU()}`,
+				recoverable ? TaskState.TASK_STATE_INPUT_REQUIRED : TaskState.TASK_STATE_FAILED,
 			);
 		}
 		bus.finished();

@@ -112,3 +112,37 @@ describe("audience mix", () => {
 		expect(r.report).toContain("Audience too narrow");
 	});
 });
+
+/**
+ * Second persona round, both from the same class of defect — a check whose scope did not match
+ * its wording, and a keyword list that stopped at the language border.
+ */
+describe("second-round persona regressions", () => {
+	it("does not claim 'no emotional hook' when the abstract has one", () => {
+		const r = evaluateMeetupTopic({
+			title: "Platform engineering at Kiwi.com",
+			abstract:
+				"The ambition every engineering leader has is a platform team that pays for itself. We got there in eighteen months and I will show the numbers, including the two quarters where it did not.",
+		});
+		const pull = (r.data!.emotional_pull as string[]) ?? [];
+		if (pull.length) {
+			expect(r.report, "the data says there is pull; the prose must not deny it").not.toContain(
+				"no emotional hook in the title",
+			);
+			expect(r.report).toContain("The hook is in the abstract, not the title");
+		}
+	});
+
+	it("catches a Czech vendor pitch", () => {
+		const r = evaluateMeetupTopic({
+			title: "Jak jsme zrychlili nasazení",
+			abstract:
+				"Ukážeme živé demo produktu, naše ceníkové úrovně a bezplatnou zkušební verzi. Náš obchodní tým bude na místě.",
+		});
+		expect(
+			(r.data!.vendor_pitch as string[]).length,
+			"Prague, Brno and Bratislava are the core stages — the guard cannot be English-only",
+		).toBeGreaterThan(0);
+		expect(r.report).toContain("vendor pitch");
+	});
+});

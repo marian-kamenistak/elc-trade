@@ -76,17 +76,67 @@ describe("bridged services", () => {
 });
 
 describe("live services answer for real", () => {
-	it("evaluates a topic", async () => {
-		const r = await dispatch("evaluate_meetup_topic", { title: "Managing distributed teams" });
-		expect(r.report).toContain("Discussion-shaped");
+	it("routes a lost caller from get_started instead of leaving them at a seller's menu", async () => {
+		const r = await dispatch("get_started", { context: "my team is struggling" });
+		// The front door's whole job: the most useful fact for most humans who reach this server.
+		expect(r.report).toContain("free for engineering leaders");
+		expect(r.report).toContain("/join/");
 	});
 
-	it("places a speaker", async () => {
-		const r = await dispatch("assess_speaker_readiness", {
-			talk_title: "From Squads to Soloists: The End of the Engineering Team as We Know It?",
-			speaker_background: "VP Engineering at Productboard. Recording on YouTube.",
-			prior_talks: 5,
+	it("answers a bare greeting without an error", async () => {
+		const r = await dispatch("get_started", { context: "hi" });
+		expect(r.report).toContain("Hello");
+	});
+
+	it("answers with no arguments at all", async () => {
+		const r = await dispatch("get_started", {});
+		expect(r.report).toContain("What you can call");
+	});
+});
+
+/**
+ * Withheld 2026-09-05 after three persona rounds. Both are deterministic keyword scorers doing
+ * semantic work, and each fix produced the same defect in a neighbouring check — a "?" lifting a
+ * band, an abstract lowering a verdict, a denial read as a confession, a Czech pitch passing
+ * untouched. A confident wrong verdict about a speaker or a topic is worse than no verdict.
+ *
+ * They stay dispatchable so an agent that reaches the id is told why, rather than "unknown tool".
+ */
+describe("withheld judgment services", () => {
+	for (const id of ["evaluate_meetup_topic", "assess_speaker_readiness"]) {
+		it(`${id} is not advertised`, () => {
+			expect(LIVE_SERVICES.map((s) => s.id)).not.toContain(id);
 		});
-		expect(r.data!.tier).toBe(1);
+
+		it(`${id} explains itself rather than erroring`, async () => {
+			const r = await dispatch(id, {});
+			expect(r.report).toContain("not available yet");
+			// The reason must be specific enough to be actionable, not a shrug.
+			expect(r.report.length).toBeGreaterThan(200);
+		});
+	}
+});
+
+/**
+ * 2026-09-05. `has_recording` and `writes_publicly` were added to the speaker schema and to the
+ * function, but dispatch hand-maps arguments per service and nobody added them there — so the
+ * card advertised them, validation accepted them, and they were dropped in silence. That is the
+ * same silent-wrong-answer class four personas found in the bridged tools.
+ *
+ * A declared argument that no handler reads is always a bug, so assert the structure rather than
+ * any single field: every key in a local service's inputSchema must appear in the source of the
+ * handler that serves it.
+ */
+describe("declared arguments are actually consumed", () => {
+	it("every local service's handler reads every key it advertises", async () => {
+		const { HANDLERS_FOR_TEST } = await import("../src/core/dispatch");
+		for (const service of LIVE_SERVICES.filter((s) => !s.bridge && !s.withheld)) {
+			const handler = HANDLERS_FOR_TEST[service.id];
+			expect(handler, `no handler registered for ${service.id}`).toBeDefined();
+			const source = handler.toString();
+			for (const key of Object.keys(service.inputSchema)) {
+				expect(source, `${service.id} advertises "${key}" but its handler never reads it`).toContain(key);
+			}
+		}
 	});
 });

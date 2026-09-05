@@ -131,8 +131,20 @@ const DISCUSSION_SHAPED = [
  * ("NOT FOR SALE, at any price: pitching from an ELC stage"). A quality score that ignores
  * that is worse than no score, because it launders a pitch into a compliant-looking talk.
  */
-const VENDOR_PITCH: Array<{ re: RegExp; what: string }> = [
-	{ re: /\b(product |platform |solution )?(demo|walkthrough|walk[- ]through)\b/i, what: "a product demo or walkthrough" },
+/**
+ * `weak: true` means the phrase is suggestive but has an innocent reading, so it never accuses
+ * on its own. "I will walk through the timeline" is how an honest post-mortem is described, and
+ * on 2026-09-05 that single phrase made the tool call a real incident review a vendor pitch AND
+ * upsell the speaker to buy reach — a paid-product pitch fired at a false positive, which one
+ * persona named the most damaging thing in the tool. A strong hit accuses alone; weak hits need
+ * a second signal.
+ */
+const VENDOR_PITCH: Array<{ re: RegExp; what: string; weak?: boolean }> = [
+	{ re: /\b(product|platform|solution) (demo|walkthrough|walk[- ]through)\b/i, what: "a product demo or walkthrough" },
+	{ re: /\b(demo|walkthrough|walk[- ]through)\b/i, what: "a demo or walkthrough", weak: true },
+	{ re: /\bfree trial\b|\btrial (available|for attendees)\b/i, what: "a free trial offered to the room" },
+	{ re: /\b(sign|signup|sign-up) ?(up )?(qr|link|sheet)\b/i, what: "a signup capture at the event" },
+	{ re: /\ba few seats available\b|\bfirst come\b/i, what: "a scarcity close", weak: true },
 	{ re: /\bpricing (tiers?|model|maps?|walkthrough)\b/i, what: "a pricing walkthrough" },
 	{ re: /\b(sdr|sales team|sales rep|account executive|our sales)\b/i, what: "sales staff working the room" },
 	{ re: /\battendee (list|emails?|contacts?|details)\b/i, what: "a request for the attendee list" },
@@ -141,7 +153,28 @@ const VENDOR_PITCH: Array<{ re: RegExp; what: string }> = [
 	{ re: /\bin exchange for (the )?(room|stage|slot|speaking)\b/i, what: "paying for the room or the slot" },
 	{ re: /\b(sponsor|sponsoring) the (drinks|venue|room|event)\b.*\b(segment|slot|talk|stage)\b/i, what: "sponsorship traded for stage time" },
 	{ re: /\bour (product|platform|tool|solution) (helped|lets|allows|enables)\b/i, what: "the product as the subject of the talk" },
+	// Czech and Slovak. 2026-09-05: the buzzword list had been localised but this one had not,
+	// so a Czech-language pitch — "živé demo produktu, ceníkové úrovně, bezplatnou zkušební
+	// verzi, obchodní tým" — returned vendor_pitch: [] with no flag and no handoff. Prague,
+	// Brno and Bratislava are the core stages; a vendor writing in Czech walked straight past
+	// the gate that exists to protect exactly those rooms.
+	{ re: /\b(demo|ukázk[au]|prezentac[ei]) (produktu|našeho|nášho|riešenia|řešení)\b/i, what: "a product demo (cs/sk)" },
+	{ re: /\b(cen[íi]k|cenov[éeá] (úrovn[ěe]|hladiny|balíčky)|ceníkové úrovně)\b/i, what: "a pricing walkthrough (cs/sk)" },
+	{ re: /\b(bezplatn[áou]|zdarma) (zkušební|skúšobn[áu]) (verz[ie]|dob[au])\b|\bzkušební verzi\b/i, what: "a free trial offered to the room (cs/sk)" },
+	{ re: /\b(obchodn[íi] (tým|zástupce|oddělení)|náš obchodn[íi])\b/i, what: "sales staff working the room (cs/sk)" },
+	{ re: /\b(kontakty na účastníky|seznam účastníků|zoznam účastníkov|sbírat kontakty|zbierať kontakty)\b/i, what: "collecting attendee contact details (cs/sk)" },
+	{ re: /\b(sleva|zľava|slevov[ýy] k[óo]d)\b/i, what: "a discount code for the room (cs/sk)", weak: true },
 ];
+
+/**
+ * The literal text a pattern matched. The title checks already quote the offending words back;
+ * the abstract checks did not, so a persona was told "Found a product demo or walkthrough" and
+ * had to bisect a 110-word abstract by hand to discover the phrase was "I will walk through".
+ * Naming the words is the difference between advice and an accusation.
+ */
+function quoted(re: RegExp, haystack: string): string {
+	return haystack.match(re)?.[0]?.trim() ?? "";
+}
 
 /** Part 2 → Title Formulas That Work. Matching one is a positive signal, not a requirement. */
 const FORMULAS: Array<{ name: string; test: (t: string) => boolean; example: string }> = [
@@ -232,17 +265,31 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		bare.trim().endsWith("?") ||
 		EMOTIONAL_PULL.some((e) => e.re.test(bare)) ||
 		/\b(stop|kill|rip|forget|wrong|myth|lie|nobody|nobody's|why most|f\*+k|dead)\b/i.test(bare);
+	// `spicy` reads the TITLE; the emotional-pull check further down reads title + abstract. When
+	// the hook is in the abstract only, the old wording said "no emotional hook here" while the
+	// data block reported `emotional_pull: ["ambition"]` and a bullet said "Taps ambition" — the
+	// same output denying and asserting one fact. A CFO persona named that the session-ender.
+	// The finding is real but it is about the title, so the message now says which.
+	const pullInAbstract = abstract ? EMOTIONAL_PULL.some((e) => e.re.test(abstract)) : false;
 	if (spicy) {
 		pass.push("Has a pointed angle — a question, a contrarian framing, or real emotional pull.");
+	} else if (pullInAbstract) {
+		fail.push(
+			"**The hook is in the abstract, not the title.** The abstract has real pull, but the title is where the click happens — on LinkedIn and Luma most people never reach the abstract. Pull the angle up into the title.",
+		);
 	} else {
 		fail.push(
-			"**No spice.** The guide: \"Safe titles get safe attendance.\" There is no question, no contrarian claim, and no emotional hook here. What belief does this talk challenge?",
+			"**No spice.** The guide: \"Safe titles get safe attendance.\" There is no question, no contrarian claim, and no emotional hook in the title. What belief does this talk challenge?",
 		);
 	}
 
+	// A bare year is not data. "Introduction to Kubernetes in 2027" used to earn "Carries a
+	// number, which helps scanning" — the check rewarded the single laziest thing you can add
+	// to a stale title, and a persona used exactly that to lift a known-bad title a whole band.
+	const numbersWithoutYears = bare.replace(/\b(19|20)\d{2}\b/g, "");
 	if (HAS_PERCENT_OR_SCALE.test(bare)) {
 		pass.push("Backed by data in the title — a concrete number or scale.");
-	} else if (HAS_NUMBER.test(bare)) {
+	} else if (HAS_NUMBER.test(numbersWithoutYears)) {
 		pass.push("Carries a number, which helps scanning on LinkedIn and Luma.");
 	} else {
 		ask.push(
@@ -338,10 +385,20 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 	}
 
 	// ── Is this a talk, or a pitch? ──────────────────────────────────────────
-	const pitchHits = VENDOR_PITCH.filter((v) => v.re.test(`${bare}\n${abstract ?? ""}`));
+	const haystack = `${bare}\n${abstract ?? ""}`;
+	const allHits = VENDOR_PITCH.filter((v) => v.re.test(haystack));
+	const strongHits = allHits.filter((v) => !v.weak);
+	// Accuse on a strong signal, or on two independent weak ones. A single weak hit is reported
+	// as a question, without the accusation and without the upsell.
+	const pitchHits = strongHits.length || allHits.length >= 2 ? allHits : [];
+
 	if (pitchHits.length) {
 		fail.push(
-			`**This reads as a vendor pitch, not a talk.** Found ${pitchHits.map((p) => p.what).join("; ")}. ELC does not sell stage time: a speaker at a meetup passes the same bar as every other speaker, because the room can tell. Rewrite around what your team did and what broke, with the product incidental — or buy reach directly instead, which is an honest way to reach the same people.`,
+			`**This reads as a vendor pitch, not a talk.** Found ${pitchHits.map((p) => p.what).join("; ")}${pitchHits.map((p) => quoted(p.re, haystack)).filter(Boolean).length ? ` — the exact wording: ${pitchHits.map((p) => quoted(p.re, haystack)).filter(Boolean).map((q) => `"${q}"`).join(", ")}` : ""}. ELC does not sell stage time: a speaker at a meetup passes the same bar as every other speaker, because the room can tell. Rewrite around what your team did and what broke, with the product incidental — or buy reach directly instead, which is an honest way to reach the same people.`,
+		);
+	} else if (allHits.length === 1) {
+		ask.push(
+			`One phrase here — "${quoted(allHits[0].re, haystack)}" — is also how a vendor pitch is worded. It is almost certainly innocent in a real post-mortem, so this is not a flag: just make sure the talk's subject is what your team did, not what your product does.`,
 		);
 	}
 
@@ -380,12 +437,49 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 	// tautological and non-comparable between runs — and adding an abstract flipped
 	// "Ready to publish" to "Reconsider" purely because more checks existed. Red flags are
 	// an absolute count and mean the same thing on every run.
-	const verdict =
-		fail.length === 0
+	/**
+	 * A content floor before any verdict is possible.
+	 *
+	 * 2026-09-05: "Is 🔥🚀💀 in 2027 Dead?" scored "Ready to publish — no mechanical red flags,
+	 * 6 things already working", and an abstract that was largely the word "banana", correctly
+	 * formatted, beat a real Rohlik post-mortem. Every check here is mechanical — length, shape,
+	 * punctuation, buzzword absence — so a string with no words passes them all by having
+	 * nothing to catch. Absence of red flags is not evidence of a topic; it has to clear a bar
+	 * of actually being one first.
+	 */
+	// Count CONTENT words, not tokens. "Is 🔥🚀💀 in 2027 Dead?" has three things that look like
+	// words but only one that carries meaning, while "Managing distributed teams" is a thin but
+	// entirely legitimate title with three. Counting tokens cannot tell those apart; dropping
+	// function words can.
+	const STOPWORDS = new Set([
+		"a", "an", "the", "is", "are", "was", "were", "be", "been", "in", "on", "at", "to", "for",
+		"of", "and", "or", "but", "with", "from", "by", "as", "it", "its", "this", "that", "we",
+		"you", "your", "our", "my", "i", "do", "does", "did", "how", "why", "what", "when", "who",
+		"still", "not", "no", "yet", "now", "up", "out", "so",
+	]);
+	const contentWords = bare
+		.split(/\s+/)
+		.map((w) => w.replace(/[^\p{L}\p{N}-]/gu, "").toLowerCase())
+		.filter((w) => /[\p{L}]{2,}/u.test(w) && !STOPWORDS.has(w));
+	const tooThin = contentWords.length < 2;
+
+	const verdict = tooThin
+		? "Not scorable — there is no topic here yet"
+		: fail.length === 0
 			? "Ready to publish — no mechanical red flags"
 			: fail.length <= 2
 				? "Fixable — a rewrite away from ready"
 				: "Reconsider — too many red flags to fill the room";
+
+	if (tooThin) {
+		// Only the positives are cleared. A real mechanical fault (too long, buzzword-stuffed)
+		// is still a real fault and stays; it was the "6 things already working" on three emoji
+		// that was vacuous, because those checks pass by having nothing to catch.
+		pass.length = 0;
+		fail.unshift(
+			`**Only ${contentWords.length} content word${contentWords.length === 1 ? "" : "s"} in the title.** Every check here is mechanical — length, shape, buzzwords, formulas — so a title with almost no words passes them all by giving them nothing to catch. That is not a good title, it is an unscoreable one. Write the actual claim first, then run this again.`,
+		);
+	}
 
 	const report = [
 		`# Topic evaluation: "${bare}"`,

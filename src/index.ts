@@ -101,22 +101,6 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 		});
 
 		this.server.registerTool(
-			"get_started",
-			{
-				title: "Start here — what can this server do?",
-				annotations: { ...READ_ONLY },
-				outputSchema: REPORT_OUTPUT,
-				description:
-					"Call this for a greeting (hi, hello), a connectivity or liveness test, 'what can you do', or any message too general to match a specific tool. Returns the full menu of services, each mapped to the tool that answers it.",
-				inputSchema: {},
-			},
-			async () => ({
-				content: [{ type: "text" as const, text: menuText() }],
-				structuredContent: { report: menuText(), source: `${ORIGIN}/agents/` },
-			}),
-		);
-
-		this.server.registerTool(
 			"get_more_tools",
 			{
 				title: "More tools? Check here first — also answers a plain hello",
@@ -197,10 +181,45 @@ code{background:#f4f4f5;padding:.1em .35em;border-radius:4px}pre{background:#f4f
 <pre>POST ${ORIGIN}${A2A_PATH}
 {"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{
   "message":{"messageId":"1","role":"ROLE_USER",
-    "parts":[{"text":"{\\"skill\\":\\"evaluate_meetup_topic\\",\\"args\\":{\\"title\\":\\"Your title\\"}}"}]},
+    "parts":[{"text":"{\\"skill\\":\\"get_started\\",\\"args\\":{\\"context\\":\\"what can you do?\\"}}"}]},
   "configuration":{"blocking":true}}}</pre>
 <h2>Skills</h2><ul>${skills}</ul>
 <p>Prefer MCP? Same services, same answers: <code>${ORIGIN}/mcp/trade</code></p>`;
+}
+
+/**
+ * Accept the v0.x JSON-RPC method names as aliases for the v1.0 PascalCase ones.
+ *
+ * v1.0 genuinely did rename these (`message/send` → `SendMessage`), so rejecting the old names
+ * is spec-correct — but almost every A2A client in the wild still speaks v0.2/v0.3, and a
+ * procurement-agent persona tried eleven method names, got a bare `Invalid method.` with no list
+ * of valid ones each time, and only found `SendMessage` by opening the HTML page in a browser.
+ * A headless caller has no such fallback: it abandons at the front door, and we never see it.
+ *
+ * Rewriting the name here is cheap and lossless — the params shape did not change for these —
+ * and the endpoint stays v1.0-conformant for anything that speaks v1.0.
+ */
+const A2A_METHOD_ALIASES: Record<string, string> = {
+	"message/send": "SendMessage",
+	"message/stream": "SendStreamingMessage",
+	"tasks/send": "SendMessage",
+	"tasks/sendSubscribe": "SendStreamingMessage",
+	"tasks/get": "GetTask",
+	"tasks/cancel": "CancelTask",
+	"tasks/resubscribe": "TaskSubscription",
+	"agent/getAuthenticatedExtendedCard": "GetAgentCard",
+};
+
+function normaliseA2AMethod(body: string): string {
+	try {
+		const rpc = JSON.parse(body) as { method?: unknown };
+		const alias = typeof rpc.method === "string" ? A2A_METHOD_ALIASES[rpc.method] : undefined;
+		if (!alias) return body;
+		return JSON.stringify({ ...rpc, method: alias });
+	} catch {
+		// Not JSON, or not an object. Let the transport produce its own parse error.
+		return body;
+	}
 }
 
 export default {
@@ -216,7 +235,10 @@ export default {
 				user: new UnauthenticatedUser(),
 				requestedVersion: request.headers.get("A2A-Version") ?? A2A_PROTOCOL_VERSION,
 			});
-			const result = await a2aTransportFor(env, ctx).handle(await request.text(), context);
+			const result = await a2aTransportFor(env, ctx).handle(
+				normaliseA2AMethod(await request.text()),
+				context,
+			);
 
 			if (isAsyncIterable(result)) {
 				const { readable, writable } = new TransformStream();
