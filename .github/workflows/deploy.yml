@@ -1,0 +1,94 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # npm ci, not npm install: ci refuses a peer conflict that install silently rewrites
+      # into the lockfile. Reproduced locally (rm -rf node_modules && npm ci) before this
+      # workflow was written — exit 0, 73 tests green.
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # worker-configuration.d.ts (Workers ambient runtime types: Request, Response,
+      # ExecutionContext, crypto) is gitignored and only exists locally because
+      # `wrangler types` was run there. Without this step type-check fails on every file
+      # touching the Worker runtime with "Cannot find name 'Request'". Purely local, no
+      # Cloudflare API call.
+      - name: Generate Cloudflare Workers runtime types
+        run: npm run cf-typegen
+
+      - name: Type check
+        run: npm run type-check
+
+      # NOT `npm run deploy`. That script runs `card:check` first, which compares against
+      # elc-web's public/.well-known/agent-card.json — a sibling repo CI does not check out,
+      # so the check would see a missing file, treat the card as stale and fail every run.
+      # The card stays version-controlled in elc-web and `card:check` still guards the local
+      # `npm run deploy`, which is where a registry change is actually made.
+      #
+      # No .op-secrets / 1Password step here, matching elc-toolkit (the other CI-deploying
+      # server). Worker secrets are pushed once by hand via elc-auth's push-cloudflare.sh;
+      # putting a service-account token that opens the whole vault into a public repo's
+      # Actions secrets would trade 2 secrets of blast radius for all of them.
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Smoke check — MCP tools/list
+        run: |
+          set -euo pipefail
+          sleep 5
+          url="https://www.engineeringleaders.io/mcp/trade"
+          # McpAgent (Durable-Object-backed) requires an mcp-session-id on every request
+          # after initialize, tools/list included. Calling tools/list directly returns
+          # 400 "Mcp-Session-Id header is required" whether or not the deploy worked.
+          headers=$(curl -sf -X POST "$url" \
+            -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci-smoke-check","version":"1.0"}}}' \
+            -D - -o /dev/null)
+          session=$(echo "$headers" | grep -i "^mcp-session-id:" | sed -E 's/^[^:]+: *//;s/\r//')
+          [ -n "$session" ] || { echo "::error::initialize did not return an mcp-session-id"; exit 1; }
+          resp=$(curl -sf -X POST "$url" \
+            -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+            -H "mcp-session-id: $session" \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+          echo "$resp" | grep -q '"evaluate_meetup_topic"' || { echo "::error::tools/list missing evaluate_meetup_topic"; exit 1; }
+          echo "MCP smoke check passed"
+
+      # This server has a second transport, so a green MCP check proves only half of it.
+      # The A2A path is also the one that fails ONLY in production: bridged skills reach the
+      # sibling Workers through service bindings, and the earlier fetch()-over-the-public-
+      # hostname version returned 403 at the edge while passing locally.
+      - name: Smoke check — A2A SendMessage
+        run: |
+          set -euo pipefail
+          resp=$(curl -sf -X POST "https://www.engineeringleaders.io/a2a/v1" \
+            -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"ci","role":"ROLE_USER","parts":[{"text":"{\"skill\":\"benchmark_leadership_ratio\",\"args\":{\"managers\":10,\"senior_ics\":30}}"}]},"configuration":{"blocking":true}}}')
+          echo "$resp" | grep -q 'TASK_STATE_COMPLETED' || { echo "::error::A2A bridged skill did not complete"; exit 1; }
+          echo "A2A smoke check passed"
