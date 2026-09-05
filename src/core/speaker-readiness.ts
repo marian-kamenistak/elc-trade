@@ -27,7 +27,7 @@
 import type { ServiceResult } from "./types";
 import { evaluateMeetupTopic } from "./meetup-topic";
 
-const PLAYBOOK = "speakers/PLAYBOOK.md";
+const PLAYBOOK = "ELC's speaker pipeline playbook";
 
 export type Tier = 1 | 2 | 3;
 
@@ -109,7 +109,7 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 		signals.push("The talk title clears the meetup topic guide with no red flags.");
 	} else {
 		gaps.push(
-			`The talk title has ${titleFlags} red flag${titleFlags === 1 ? "" : "s"} against the topic guide. Run \`evaluate_meetup_topic\` on it — a title that does not fill the room sinks a ready speaker.`,
+			`The talk title has ${titleFlags} red flag${titleFlags === 1 ? "" : "s"} against the topic guide. Run \`evaluate_meetup_topic\` with \`{"title": "${talk_title.replace(/"/g, "'")}"}\` for the specifics — note the argument is \`title\` there, not \`talk_title\`. A title that does not fill the room sinks a ready speaker.`,
 		);
 	}
 
@@ -163,7 +163,7 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 		"",
 		"Public writing → a 120+ meetup (the audition, and where the recording comes from) → conference candidate. ELC has run this loop since 2019; the meetup rung exists precisely so nobody's first big stage is also their riskiest.",
 		"",
-		`Assessed against ELC's own speaker pipeline (${PLAYBOOK}) and the practitioner test in the meetup topic guide. Note: ELC commits fee and travel only when confirmed per person — the playbook's default is "will do my best to cover travel", never an implied promise.`,
+		`Assessed against ${PLAYBOOK} and the practitioner test in the meetup topic guide. Note: ELC commits fee and travel only when confirmed per person — the playbook's default is "will do my best to cover travel", never an implied promise.`,
 	]
 		.filter(Boolean)
 		.join("\n");

@@ -141,7 +141,24 @@ export async function callSibling(
 			throw new BridgeError(`${endpoint}/${tool}: ${e.message ?? "unknown error"}`);
 		}
 
-		const result = rpc.result as { content?: Array<{ type: string; text?: string }> } | undefined;
+		// A tool-level failure comes back as a SUCCESSFUL JSON-RPC result carrying
+		// isError: true — not as an rpc.error. Reading only the text meant a validation
+		// failure on a sibling surfaced here as a completed task with an error string as its
+		// answer, and over A2A that became TASK_STATE_COMPLETED. An autonomous caller
+		// branching on task state recorded the failure as a win. Found by the A2A persona,
+		// 2026-09-05, who called it the most dangerous thing in the surface.
+		const result = rpc.result as
+			| { content?: Array<{ type: string; text?: string }>; isError?: boolean }
+			| undefined;
+
+		if (result?.isError) {
+			const detail = (result.content ?? [])
+				.map((c) => c.text ?? "")
+				.join("\n")
+				.trim();
+			throw new BridgeError(detail || `${endpoint}/${tool} reported an error with no detail`);
+		}
+
 		const text = (result?.content ?? [])
 			.filter((c) => c.type === "text" && typeof c.text === "string")
 			.map((c) => c.text as string)

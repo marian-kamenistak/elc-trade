@@ -80,7 +80,7 @@ export const SERVICES: ServiceDefinition[] = [
 			oneoff_ids: z
 				.array(z.enum(ONEOFF_IDS))
 				.min(1)
-				.describe("Which one-off reach items to quote. Combo discount applies automatically."),
+				.describe("Which one-off reach items to quote. One or more of: newsletter-section, newsletter-dedicated, meetup-hosted, podcast-episode, dinner, survey, demo-session, linkedin-post, job-listing. Combo discount applies automatically."),
 		},
 	},
 
@@ -154,7 +154,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "evaluate_meetup_topic",
 		title: "Evaluate a meetup topic before you commit to it",
 		description:
-			"Answers 'will this topic fill a room?' Scores a proposed engineering-leadership meetup title and abstract against ELC's own topic-selection criteria — the ones behind 12 meetups a year at 120+ attendees since 2019 — and returns the specific failure modes plus a rewritten title.",
+			"Answers 'will this topic fill a room?' Scores a proposed engineering-leadership meetup title and abstract against ELC's own topic-selection criteria — the ones behind 12 meetups a year at 120+ attendees since 2019 — and returns the specific failure modes, the title formulas that would fit, and the questions only the organiser can answer.",
 		tags: ["meetup", "community", "assessment", "content"],
 		examples: [
 			"Is 'Microservices Best Practices' a good meetup topic for engineering leaders?",

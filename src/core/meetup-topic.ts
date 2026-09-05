@@ -16,7 +16,7 @@
 
 import type { ServiceResult } from "./types";
 
-const GUIDE = "topics/meetup-topic-guide.md";
+const GUIDE = "the ELC meetup topic guide";
 
 /** Part 2 → Title Mechanics: "Keep it under 80 characters (excluding the meetup number)." */
 const TITLE_MAX_CHARS = 80;
@@ -48,6 +48,24 @@ const BUZZWORDS = [
 	"deep dive",
 	"unlocking the power",
 	"harnessing",
+	// Czech and Slovak. Added 2026-09-05: the list was English-only, so "nejlepší praxe"
+	// passed where "best practices" failed and a Czech organiser got a BETTER score for the
+	// identical bad title. Prague, Brno and Bratislava are the core stages, not an edge case.
+	"nejlepší praxe",
+	"nejlepsi praxe",
+	"osvědčené postupy",
+	"osvedcene postupy",
+	"digitální transformace",
+	"digitalni transformace",
+	"digitálna transformácia",
+	"synergie",
+	"efektivita a inovace",
+	"posunout na další úroveň",
+	"posunout na dalsi uroven",
+	"komplexní řešení",
+	"komplexni reseni",
+	"holistický přístup",
+	"holisticky pristup",
 ];
 
 /** Part 2 → Title Criteria 1: "Not clickbait." Manufactured urgency and empty curiosity gaps. */
@@ -101,6 +119,28 @@ const DISCUSSION_SHAPED = [
 	/\ban overview\b/i,
 	/\ba discussion\b/i,
 	/\bpanel on\b/i,
+];
+
+/**
+ * Vendor-pitch detection. Added 2026-09-05 at Marian's direction after a persona test:
+ * a VP of Sales submitted an abstract naming a product demo, his SDR team in the room and a
+ * request for the attendee list afterwards. This scorer rated it 7/8 "Fixable" and had
+ * coached him up from 5/9 — the tool built to protect the room tutored a vendor past it.
+ *
+ * The room's whole value is that it does not get sold to; buy_reach says so in writing
+ * ("NOT FOR SALE, at any price: pitching from an ELC stage"). A quality score that ignores
+ * that is worse than no score, because it launders a pitch into a compliant-looking talk.
+ */
+const VENDOR_PITCH: Array<{ re: RegExp; what: string }> = [
+	{ re: /\b(product |platform |solution )?(demo|walkthrough|walk[- ]through)\b/i, what: "a product demo or walkthrough" },
+	{ re: /\bpricing (tiers?|model|maps?|walkthrough)\b/i, what: "a pricing walkthrough" },
+	{ re: /\b(sdr|sales team|sales rep|account executive|our sales)\b/i, what: "sales staff working the room" },
+	{ re: /\battendee (list|emails?|contacts?|details)\b/i, what: "a request for the attendee list" },
+	{ re: /\bcollect (attendee |their )?(emails?|contacts?|details)\b/i, what: "collecting attendee contact details" },
+	{ re: /\b(book|schedule) follow[- ]?ups?\b/i, what: "booking follow-ups at the event" },
+	{ re: /\bin exchange for (the )?(room|stage|slot|speaking)\b/i, what: "paying for the room or the slot" },
+	{ re: /\b(sponsor|sponsoring) the (drinks|venue|room|event)\b.*\b(segment|slot|talk|stage)\b/i, what: "sponsorship traded for stage time" },
+	{ re: /\bour (product|platform|tool|solution) (helped|lets|allows|enables)\b/i, what: "the product as the subject of the talk" },
 ];
 
 /** Part 2 → Title Formulas That Work. Matching one is a positive signal, not a requirement. */
@@ -271,7 +311,13 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		}
 
 		for (const rf of ABSTRACT_RED_FLAGS) {
-			if (rf.pattern.test(abstract)) fail.push(`**Abstract red flag** — ${rf.flag}. ${rf.fix}`);
+			const hit = abstract.match(rf.pattern);
+			if (!hit) continue;
+			// Quote what the author actually wrote. Reporting the canonical phrase in quotes
+			// reads as a quotation of their text and was called out as fabricated by a tester
+			// whose abstract said "In this session we will explore" while the flag claimed
+			// "In this meetup, we will explore".
+			fail.push(`**Abstract red flag** — "${hit[0].trim()}" (${rf.flag}). ${rf.fix}`);
 		}
 
 		const longParas = abstract
@@ -289,6 +335,14 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		}
 	} else {
 		ask.push("No abstract supplied. The 3-part abstract formula in Part 3 is where most of the registration decision is won.");
+	}
+
+	// ── Is this a talk, or a pitch? ──────────────────────────────────────────
+	const pitchHits = VENDOR_PITCH.filter((v) => v.re.test(`${bare}\n${abstract ?? ""}`));
+	if (pitchHits.length) {
+		fail.push(
+			`**This reads as a vendor pitch, not a talk.** Found ${pitchHits.map((p) => p.what).join("; ")}. ELC does not sell stage time: a speaker at a meetup passes the same bar as every other speaker, because the room can tell. Rewrite around what your team did and what broke, with the product incidental — or buy reach directly instead, which is an honest way to reach the same people.`,
+		);
 	}
 
 	// ── Audience mix (Topic Selection Checklist) ─────────────────────────────
@@ -322,7 +376,10 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 	// ── Verdict ──────────────────────────────────────────────────────────────
 	// The guide's own bar is the Topic Selection Checklist: 5 of 7 or reconsider. We apply
 	// the same shape to the mechanical checks we can actually measure.
-	const checks = pass.length + fail.length;
+	// No X/Y score. The denominator used to be passed + red_flags, which made 6/6 and 9/9
+	// tautological and non-comparable between runs — and adding an abstract flipped
+	// "Ready to publish" to "Reconsider" purely because more checks existed. Red flags are
+	// an absolute count and mean the same thing on every run.
 	const verdict =
 		fail.length === 0
 			? "Ready to publish — no mechanical red flags"
@@ -333,13 +390,13 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 	const report = [
 		`# Topic evaluation: "${bare}"`,
 		"",
-		`**${verdict}.** ${pass.length}/${checks} mechanical checks passed, ${fail.length} red flag${fail.length === 1 ? "" : "s"}.`,
+		`**${verdict}.** ${fail.length} red flag${fail.length === 1 ? "" : "s"} to fix${pass.length ? `, ${pass.length} thing${pass.length === 1 ? "" : "s"} already working` : ""}.`,
 		"",
 		fail.length ? `## Fix these\n\n${fail.map((f) => `- ${f}`).join("\n")}` : "",
 		pass.length ? `## Working\n\n${pass.map((p) => `- ${p}`).join("\n")}` : "",
 		`## Only you can answer these\n\n${ask.map((a) => `- ${a}`).join("\n")}`,
 		"",
-		`Scored against ELC's own topic guide (${GUIDE}) — the checklist behind 12 meetups a year at 120+ attendees since 2019. The mechanical checks are measured, not estimated; the questions above are the ones the guide says a human has to answer.`,
+		`Scored against ${GUIDE} — the checklist behind 12 meetups a year at 120+ attendees since 2019. The mechanical checks are measured, not estimated; the questions above are the ones the guide says a human has to answer.`,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -351,6 +408,7 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		data: {
 			title_chars: bare.length,
 			checks_passed: pass.length,
+			vendor_pitch: pitchHits.map((p) => p.what),
 			red_flags: fail.length,
 			formulas_matched: matched.map((f) => f.name),
 			emotional_pull: pull.map((p) => p.theme),
