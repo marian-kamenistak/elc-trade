@@ -112,11 +112,8 @@ describe("judgment services fail closed without the extractor", () => {
 			{ talk_title: "Scaling teams", speaker_background: "VP Engineering at Productboard." },
 		],
 	] as const) {
-		// Not advertised while the extractor's API credit is exhausted — a tool that is always
-		// going to decline should not be on the menu. Flip this expectation back to `toContain`
-		// in the same commit that deletes the `withheld` line in services.ts.
-		it(`${id} stays off the menu until the extractor can actually run`, () => {
-			expect(LIVE_SERVICES.map((s) => s.id)).not.toContain(id);
+		it(`${id} is advertised`, () => {
+			expect(LIVE_SERVICES.map((s) => s.id)).toContain(id);
 		});
 
 		it(`${id} declines rather than falling back to patterns`, async () => {

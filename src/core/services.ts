@@ -270,13 +270,6 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
-		// RE-WITHHELD 2026-09-05, one line from live. The model-backed extractor (src/core/extract.ts)
-		// is built, deployed and wired; the Anthropic key on this Worker has no credit, so every
-		// call fails closed to this notice. Advertising a tool that always declines is worse than
-		// not advertising it. Delete this `withheld` line the moment the account is topped up —
-		// nothing else needs to change, and the fail-closed path stays as the permanent safety net.
-		withheld:
-			"Being rebuilt on model-backed evidence extraction rather than keyword matching, because the pattern version could be gamed by a single question mark and missed Czech-language vendor pitches entirely. The extractor is deployed but its API credit is exhausted, so this declines rather than falling back to the patterns. The underlying topic guide is public: https://www.engineeringleaders.io/toolkit/",
 		inputSchema: {
 			title: z.string().min(3).describe("The proposed meetup or talk title."),
 			abstract: z.string().optional().describe("The abstract, if one exists yet."),
@@ -301,13 +294,6 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
-		// RE-WITHHELD 2026-09-05, one line from live. The model-backed extractor (src/core/extract.ts)
-		// is built, deployed and wired; the Anthropic key on this Worker has no credit, so every
-		// call fails closed to this notice. Advertising a tool that always declines is worse than
-		// not advertising it. Delete this `withheld` line the moment the account is topped up —
-		// nothing else needs to change, and the fail-closed path stays as the permanent safety net.
-		withheld:
-			"Being rebuilt on model-backed evidence extraction rather than keyword matching, because the pattern version read a denial as a confession and could not count 'spoke at three international conferences'. The extractor is deployed but its API credit is exhausted, so this declines rather than falling back to the patterns. ELC's speaker pipeline is described at https://www.engineeringleaders.io/cfp/",
 		inputSchema: {
 			talk_title: z.string().min(3).describe("The proposed talk title."),
 			speaker_background: z

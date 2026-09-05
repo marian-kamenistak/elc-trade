@@ -344,7 +344,16 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		ask.push('Remember the meetup number goes in front at publication: "#38 Your Title Here".');
 	}
 
-	const matched = FORMULAS.filter((f) => f.test(bare));
+	// "[Provocative question]" tested `endsWith("?")`, so appending one character to
+	// "Microservices Best Practices" removed the no-formula flag and lifted the whole verdict a
+	// band — the last of the punctuation-as-judgment defects. A question mark makes a sentence a
+	// question; it does not make it provocative. When the reader has looked at the text, the
+	// formula requires the angle the formula is named after.
+	const matched = FORMULAS.filter((f) =>
+		ev && f.name === "[Provocative question]"
+			? f.test(bare) && ev.has_contrarian_angle
+			: f.test(bare),
+	);
 	if (matched.length) {
 		pass.push(`Matches a proven formula — ${matched.map((f) => f.name).join("; ")}.`);
 	} else {

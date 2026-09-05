@@ -17,7 +17,7 @@
 // Workers ambient types do not cover `process`. Declared locally rather than pulling
 // @types/node into a Worker project, which would make Node globals look available in
 // src/ where they are not.
-declare const process: { argv: string[]; exit(code: number): never };
+declare const process: { argv: string[]; env: Record<string, string | undefined>; exit(code: number): never };
 
 import { dispatch } from "./core/dispatch";
 import { LIVE_SERVICES, SERVICES } from "./core/services";
@@ -35,7 +35,20 @@ const env = {
 	PARTNERSHIP: svc(),
 	// SLACK_BOT_TOKEN_ELC deliberately absent — notifyDeal returns early without it.
 	A2A_TRADE_SLACK_CHANNEL: "",
+	// The evidence extractor needs a real key, and its absence is not a silent degrade: the
+	// judgment services fail closed to "not available yet". A persona testing them through this
+	// harness without the key would be testing the refusal path, not the tool — so pass it
+	// through from the shell (set -a && source ~/.env && set +a) and say so when it is missing.
+	ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
 };
+
+if (!process.env.ANTHROPIC_API_KEY) {
+	console.error(
+		"[harness] No ANTHROPIC_API_KEY set. evaluate_meetup_topic and assess_speaker_readiness " +
+			"will decline rather than answer — that is the fail-closed path, not a bug. " +
+			"Run: set -a && source ~/.env && set +a",
+	);
+}
 
 async function main() {
 	const [tool, rawArgs] = process.argv.slice(2);

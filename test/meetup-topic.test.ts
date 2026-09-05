@@ -146,3 +146,55 @@ describe("second-round persona regressions", () => {
 		expect(r.report).toContain("vendor pitch");
 	});
 });
+
+/**
+ * Evidence-backed scoring (section A). These pass the extractor's output in directly rather
+ * than calling the API, so they are deterministic and free — the API call itself is covered by
+ * the fail-closed test in dispatch.test.ts.
+ */
+describe("evidence outranks punctuation", () => {
+	const noAngle = {
+		has_stakes: false,
+		has_contrarian_angle: false,
+		commercial_intent: false,
+		has_specifics: false,
+		named_company: null,
+	};
+
+	it("a question mark alone no longer lifts a dud a band", () => {
+		// The last punctuation-as-judgment defect: appending "?" to a known-bad title removed
+		// the no-formula flag and moved Reconsider -> Fixable.
+		const plain = evaluateMeetupTopic({ title: "Microservices Best Practices", evidence: noAngle });
+		const marked = evaluateMeetupTopic({ title: "Microservices Best Practices?", evidence: noAngle });
+		expect(marked.verdict).toBe(plain.verdict);
+		expect(marked.data!.formulas_matched).not.toContain("[Provocative question]");
+	});
+
+	it("a genuine contrarian question still matches the formula", () => {
+		const r = evaluateMeetupTopic({
+			title: "Is Your Platform Team Actually Making Delivery Slower?",
+			evidence: { ...noAngle, has_contrarian_angle: true },
+		});
+		expect(r.data!.formulas_matched).toContain("[Provocative question]");
+	});
+
+	it("the reader clears an honest post-mortem the patterns could only hedge", () => {
+		const r = evaluateMeetupTopic({
+			title: "How we lost 40% of our Go services in one night",
+			abstract: "An etcd prefix change took out 58 of 140 services. I will walk through the timeline.",
+			evidence: { ...noAngle, has_stakes: true, has_specifics: true },
+		});
+		expect(r.data!.vendor_pitch).toEqual([]);
+		expect(r.report).not.toContain("reads as a vendor pitch");
+	});
+
+	it("the reader catches a pitch the patterns miss entirely", () => {
+		const r = evaluateMeetupTopic({
+			title: "Nase reseni pro nasazeni",
+			abstract: "Predstavime nase reseni a jak si ho muzete vyzkouset.",
+			evidence: { ...noAngle, commercial_intent: true },
+		});
+		expect((r.data!.vendor_pitch as string[]).length).toBeGreaterThan(0);
+		expect(r.report).toContain("vendor pitch");
+	});
+});
