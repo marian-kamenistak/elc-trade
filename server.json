@@ -1,0 +1,17 @@
+{
+	"$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+	"name": "io.engineeringleaders/elc-trade",
+	"description": "Score a meetup topic before you commit to it, place a speaker on the right stage, and price community reach. Engineering Leaders Community data.",
+	"repository": {
+		"url": "https://github.com/marian-kamenistak/elc-trade",
+		"source": "github"
+	},
+	"websiteUrl": "https://www.engineeringleaders.io/agents/",
+	"version": "1.0.0",
+	"remotes": [
+		{
+			"type": "streamable-http",
+			"url": "https://www.engineeringleaders.io/mcp/trade"
+		}
+	]
+}
