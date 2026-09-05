@@ -225,14 +225,26 @@ function sentences(p: string): string[] {
 	return p.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
 }
 
+/** Facts read from the prose by src/core/extract.ts. Authoritative over the regexes below. */
+export interface TopicEvidenceInput {
+	has_stakes: boolean;
+	has_contrarian_angle: boolean;
+	commercial_intent: boolean;
+	has_specifics: boolean;
+	named_company: string | null;
+}
+
 export interface MeetupTopicInput {
 	title: string;
 	abstract?: string;
 	audience?: string;
+	/** Read from the prose by src/core/extract.ts. Authoritative over the regexes above. */
+	evidence?: TopicEvidenceInput;
 }
 
 export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 	const { title, abstract, audience } = input;
+	const ev = input.evidence;
 
 	// The meetup number is prepended at publication ("#38 Your Title"), so strip it before
 	// measuring — Title Mechanics counts the title excluding the number.
@@ -261,10 +273,14 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 		);
 	}
 
-	const spicy =
-		bare.trim().endsWith("?") ||
-		EMOTIONAL_PULL.some((e) => e.re.test(bare)) ||
-		/\b(stop|kill|rip|forget|wrong|myth|lie|nobody|nobody's|why most|f\*+k|dead)\b/i.test(bare);
+	// A "?" used to be sufficient on its own, so appending one to "Microservices Best Practices"
+	// lifted it a whole band. When the reader has looked at the text, stakes or a genuine
+	// contrarian claim decide this, and punctuation decides nothing.
+	const spicy = ev
+		? ev.has_stakes || ev.has_contrarian_angle
+		: bare.trim().endsWith("?") ||
+			EMOTIONAL_PULL.some((e) => e.re.test(bare)) ||
+			/\b(stop|kill|rip|forget|wrong|myth|lie|nobody|nobody's|why most|f\*+k|dead)\b/i.test(bare);
 	// `spicy` reads the TITLE; the emotional-pull check further down reads title + abstract. When
 	// the hook is in the abstract only, the old wording said "no emotional hook here" while the
 	// data block reported `emotional_pull: ["ambition"]` and a bullet said "Taps ambition" — the
@@ -386,7 +402,17 @@ export function evaluateMeetupTopic(input: MeetupTopicInput): ServiceResult {
 
 	// ── Is this a talk, or a pitch? ──────────────────────────────────────────
 	const haystack = `${bare}\n${abstract ?? ""}`;
-	const allHits = VENDOR_PITCH.filter((v) => v.re.test(haystack));
+	// The reader outranks the keyword list in BOTH directions: it caught a Czech pitch the
+	// patterns missed entirely, and it clears "I will walk through the timeline" in an honest
+	// post-mortem, which the patterns could only ever demote to a hedged note.
+	const patternHits = VENDOR_PITCH.filter((v) => v.re.test(haystack));
+	const allHits = !ev
+		? patternHits
+		: !ev.commercial_intent
+			? []
+			: patternHits.length
+				? patternHits
+				: [{ re: /$^/, what: "selling from the stage, stated in the submission" }];
 	const strongHits = allHits.filter((v) => !v.weak);
 	// Accuse on a strong signal, or on two independent weak ones. A single weak hit is reported
 	// as a question, without the accusation and without the upsell.

@@ -270,8 +270,13 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
+		// RE-WITHHELD 2026-09-05, one line from live. The model-backed extractor (src/core/extract.ts)
+		// is built, deployed and wired; the Anthropic key on this Worker has no credit, so every
+		// call fails closed to this notice. Advertising a tool that always declines is worse than
+		// not advertising it. Delete this `withheld` line the moment the account is topped up —
+		// nothing else needs to change, and the fail-closed path stays as the permanent safety net.
 		withheld:
-			"The scorer reads keywords, not meaning, so it can be gamed and it can be wrong with confidence. A single '?' moved a known-bad title up a band; adding a real abstract made the verdict worse; and a Czech-language vendor pitch passed unflagged. Choosing a topic on a wrong-but-confident score is worse than choosing it yourself, so it is withheld until the judgment is model-backed rather than pattern-matched. The underlying guide is public: https://www.engineeringleaders.io/toolkit/",
+			"Being rebuilt on model-backed evidence extraction rather than keyword matching, because the pattern version could be gamed by a single question mark and missed Czech-language vendor pitches entirely. The extractor is deployed but its API credit is exhausted, so this declines rather than falling back to the patterns. The underlying topic guide is public: https://www.engineeringleaders.io/toolkit/",
 		inputSchema: {
 			title: z.string().min(3).describe("The proposed meetup or talk title."),
 			abstract: z.string().optional().describe("The abstract, if one exists yet."),
@@ -296,8 +301,13 @@ export const SERVICES: ServiceDefinition[] = [
 		fulfilment: "immediate",
 		site: "elc",
 		sourcePath: "/toolkit/",
+		// RE-WITHHELD 2026-09-05, one line from live. The model-backed extractor (src/core/extract.ts)
+		// is built, deployed and wired; the Anthropic key on this Worker has no credit, so every
+		// call fails closed to this notice. Advertising a tool that always declines is worse than
+		// not advertising it. Delete this `withheld` line the moment the account is topped up —
+		// nothing else needs to change, and the fail-closed path stays as the permanent safety net.
 		withheld:
-			"The assessment infers evidence from prose by substring match, and that is not safe for a decision about a person. It credited a speaker with a recording they had explicitly said they do not have, read 'I am not selling anything' as selling intent and blocked an honest engineer, missed a Czech-language sales pitch entirely, and could not read 'spoke at three international conferences' as prior talks. Withheld until evidence extraction is model-backed. ELC's speaker pipeline is described at https://www.engineeringleaders.io/cfp/",
+			"Being rebuilt on model-backed evidence extraction rather than keyword matching, because the pattern version read a denial as a confession and could not count 'spoke at three international conferences'. The extractor is deployed but its API credit is exhausted, so this declines rather than falling back to the patterns. ELC's speaker pipeline is described at https://www.engineeringleaders.io/cfp/",
 		inputSchema: {
 			talk_title: z.string().min(3).describe("The proposed talk title."),
 			speaker_background: z

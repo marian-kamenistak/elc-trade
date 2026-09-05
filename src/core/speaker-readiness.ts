@@ -47,6 +47,21 @@ export interface SpeakerInput {
 	 */
 	has_recording?: boolean;
 	writes_publicly?: boolean;
+	/**
+	 * Facts read out of the prose by src/core/extract.ts. When present these are AUTHORITATIVE
+	 * over every regex below — the regexes were the reason this tool was withheld. Explicit
+	 * caller-supplied booleans still win over both: a submitter who states a fact outranks a
+	 * reader interpreting one.
+	 */
+	evidence?: {
+		prior_talks: number | null;
+		has_recording: boolean;
+		writes_publicly: boolean;
+		practitioner: boolean;
+		disclaims_experience: boolean;
+		commercial_intent: boolean;
+		named_company: string | null;
+	};
 }
 
 /**
@@ -126,19 +141,21 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 	const blockers: string[] = [];
 
 	// ── Practitioner vs vendor: the fastest disqualifier ─────────────────────
-	const consultant = CONSULTANT_SHAPE.test(bg);
+	const ev = input.evidence;
+	const consultant = ev ? !ev.practitioner && CONSULTANT_SHAPE.test(bg) : CONSULTANT_SHAPE.test(bg);
 	// Scope counts as evidence on its own; a title alone is only a claim. Either establishes the
 	// practitioner signal, but a stated scope is the stronger one and is called out separately.
-	const scope = STATED_SCOPE.test(bg);
+	const scope = ev ? ev.practitioner : STATED_SCOPE.test(bg);
 	// An explicit disclaimer outranks any title. "VP of Engineering. I have never worked in tech
 	// and I made this title up" scored practitioner: true, because the flag read the two words
 	// before the full stop and ignored the sentence after it. A title is a claim; a disclaimer
 	// is the submitter telling you the claim is empty.
-	const disclaimsExperience =
-		/\b(never (worked|managed|led|run|ran)|no (engineering|technical|industry) (experience|background)|made (this|the) title up|not (actually|really) (an? )?(engineer|manager))\b/i.test(
-			bg,
-		);
-	const practitioner = (PRACTITIONER_SHAPE.test(bg) || scope) && !disclaimsExperience;
+	const disclaimsExperience = ev
+		? ev.disclaims_experience
+		: /\b(never (worked|managed|led|run|ran)|no (engineering|technical|industry) (experience|background)|made (this|the) title up|not (actually|really) (an? )?(engineer|manager))\b/i.test(
+				bg,
+			);
+	const practitioner = (ev ? ev.practitioner || PRACTITIONER_SHAPE.test(bg) : PRACTITIONER_SHAPE.test(bg) || scope) && !disclaimsExperience;
 
 	// Selling intent is checked FIRST and outranks any title. A stated sales pitch is not a
 	// readiness question at any tier.
@@ -148,8 +165,11 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 	// while the same bio with the disclaimer deleted scored Tier 1. It punished honesty and
 	// rewarded silence — in a CFP triage tool, the worst possible direction. This is the exact
 	// negation bug already fixed for `has_recording`; it was never applied here.
-	const selling =
-		(SELLING_INTENT.test(bg) && !denies(bg, SELLING_INTENT)) || SELLING_INTENT.test(talk_title);
+	// The model reads denials correctly, which the regex could not: "I am not selling anything"
+	// blocked an honest engineer at Tier 3 while deleting the denial scored Tier 1.
+	const selling = ev
+		? ev.commercial_intent
+		: (SELLING_INTENT.test(bg) && !denies(bg, SELLING_INTENT)) || SELLING_INTENT.test(talk_title);
 
 	if (selling) {
 		blockers.push(
@@ -173,7 +193,8 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 		);
 	}
 
-	if (NAMED_COMPANY.test(bg)) {
+	// NAMED_COMPANY only matches the English "at X", so Czech "ve firmě Fenwick" scored none.
+	if (ev ? ev.named_company !== null : NAMED_COMPANY.test(bg)) {
 		signals.push("Named company — case studies from recognisable companies consistently outperform generic advice.");
 	} else {
 		gaps.push("No named company. The audience weights a story far more heavily when it belongs to a real org.");
@@ -182,11 +203,15 @@ export function assessSpeakerReadiness(input: SpeakerInput): ServiceResult {
 	// ── Stage evidence: the playbook's graduation criterion ──────────────────
 	// Explicit input wins. Prose inference is the fallback, and a denial in the prose beats a
 	// bare keyword match — "no recording" must never read as evidence of a recording.
+	// Precedence: what the caller states > what the model reads > what a regex guesses.
 	const recording =
 		input.has_recording ??
+		ev?.has_recording ??
 		(HAS_RECORDING.test(bg) && !denies(bg, HAS_RECORDING) && !WANTS_STAGE.test(bg));
-	const writing = input.writes_publicly ?? (HAS_WRITING.test(bg) && !denies(bg, HAS_WRITING));
-	const talks = prior_talks ?? (recording ? 1 : 0);
+	const writing =
+		input.writes_publicly ?? ev?.writes_publicly ?? (HAS_WRITING.test(bg) && !denies(bg, HAS_WRITING));
+	// "spoke at three international conferences including QCon and GOTO" used to score zero.
+	const talks = prior_talks ?? ev?.prior_talks ?? (recording ? 1 : 0);
 
 	if (recording) {
 		signals.push("There is a recording. This is the playbook's explicit graduation criterion for the conference lane.");

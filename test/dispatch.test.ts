@@ -95,27 +95,41 @@ describe("live services answer for real", () => {
 });
 
 /**
- * Withheld 2026-09-05 after three persona rounds. Both are deterministic keyword scorers doing
- * semantic work, and each fix produced the same defect in a neighbouring check — a "?" lifting a
- * band, an abstract lowering a verdict, a denial read as a confession, a Czech pitch passing
- * untouched. A confident wrong verdict about a speaker or a topic is worse than no verdict.
+ * Evidence-backed since 2026-09-05. Both were withheld for a day because their regexes guessed
+ * at meaning; they answer again now that src/core/extract.ts reads the prose into facts and
+ * these scorers judge only the facts.
  *
- * They stay dispatchable so an agent that reaches the id is told why, rather than "unknown tool".
+ * The direction of the fallback is the safety property worth testing: with no extractor
+ * reachable — which is the case here, no API key in the test env — they must DECLINE, not
+ * quietly revert to pattern matching. A degraded path nobody can see is how the original
+ * defect would come back.
  */
-describe("withheld judgment services", () => {
-	for (const id of ["evaluate_meetup_topic", "assess_speaker_readiness"]) {
-		it(`${id} is not advertised`, () => {
+describe("judgment services fail closed without the extractor", () => {
+	for (const [id, args] of [
+		["evaluate_meetup_topic", { title: "Microservices Best Practices" }],
+		[
+			"assess_speaker_readiness",
+			{ talk_title: "Scaling teams", speaker_background: "VP Engineering at Productboard." },
+		],
+	] as const) {
+		// Not advertised while the extractor's API credit is exhausted — a tool that is always
+		// going to decline should not be on the menu. Flip this expectation back to `toContain`
+		// in the same commit that deletes the `withheld` line in services.ts.
+		it(`${id} stays off the menu until the extractor can actually run`, () => {
 			expect(LIVE_SERVICES.map((s) => s.id)).not.toContain(id);
 		});
 
-		it(`${id} explains itself rather than erroring`, async () => {
-			const r = await dispatch(id, {});
+		it(`${id} declines rather than falling back to patterns`, async () => {
+			const r = await dispatch(id, args);
+			expect(r.verdict).toBe("Not available yet");
 			expect(r.report).toContain("not available yet");
-			// The reason must be specific enough to be actionable, not a shrug.
-			expect(r.report.length).toBeGreaterThan(200);
+			// It must NOT have scored anything.
+			expect(r.report).not.toContain("red flag");
+			expect(r.data?.tier).toBeUndefined();
 		});
 	}
 });
+
 
 /**
  * 2026-09-05. `has_recording` and `writes_publicly` were added to the speaker schema and to the

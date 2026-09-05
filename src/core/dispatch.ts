@@ -20,6 +20,7 @@ import { assessSpeakerReadiness } from "./speaker-readiness";
 import { callSibling, type BridgeBindings } from "./bridge";
 import { renderQuote, splitQuote } from "./quote-render";
 import { getStarted } from "./get-started";
+import { extractSpeakerEvidence, extractTopicEvidence, type ExtractEnv } from "./extract";
 import { type DealsEnv, isDealworthy, notifyDeal } from "./deals";
 
 type Handler = (args: Record<string, unknown>) => ServiceResult | Promise<ServiceResult>;
@@ -90,6 +91,54 @@ function rewriteSiblingNames(text: string, service: ServiceDefinition): string {
 	return out;
 }
 
+/**
+ * Services that cannot answer from patterns alone, and must not try.
+ *
+ * Both were withheld on 2026-09-05 because their regexes guessed at meaning and guessed wrong
+ * with confidence. They come back model-backed: `extract.ts` reads the prose into facts, the
+ * scorers below judge those facts. If extraction is unavailable — no key, network fault,
+ * unparseable response — the service returns its withheld notice instead of an answer.
+ *
+ * That fallback direction is the whole point. Falling back to the keyword scorer would restore
+ * the exact defect the withholding was for, on a path nobody would notice was degraded.
+ */
+const NEEDS_EVIDENCE = new Set(["evaluate_meetup_topic", "assess_speaker_readiness"]);
+
+type AsyncHandler = (
+	args: Record<string, unknown>,
+	env?: ExtractEnv,
+) => Promise<ServiceResult | null>;
+
+const EVIDENCE_HANDLERS: Record<string, AsyncHandler> = {
+	evaluate_meetup_topic: async (a, env) => {
+		const title = String(a.title ?? "");
+		const abstract = a.abstract == null ? undefined : String(a.abstract);
+		const evidence = env ? await extractTopicEvidence(env, { title, abstract }) : null;
+		if (!evidence) return null;
+		return evaluateMeetupTopic({
+			title,
+			abstract,
+			audience: a.audience == null ? undefined : String(a.audience),
+			evidence,
+		});
+	},
+	assess_speaker_readiness: async (a, env) => {
+		const talk_title = String(a.talk_title ?? "");
+		const speaker_background = String(a.speaker_background ?? "");
+		const evidence = env ? await extractSpeakerEvidence(env, { talk_title, speaker_background }) : null;
+		if (!evidence) return null;
+		return assessSpeakerReadiness({
+			talk_title,
+			speaker_background,
+			prior_talks: a.prior_talks == null ? undefined : Number(a.prior_talks),
+			has_dry_run: a.has_dry_run == null ? undefined : Boolean(a.has_dry_run),
+			has_recording: a.has_recording == null ? undefined : Boolean(a.has_recording),
+			writes_publicly: a.writes_publicly == null ? undefined : Boolean(a.writes_publicly),
+			evidence,
+		});
+	},
+};
+
 const HANDLERS: Record<string, Handler> = {
 	get_started: (a) =>
 		getStarted(
@@ -151,7 +200,7 @@ export class UnknownServiceError extends Error {
  * than silently degrading.
  */
 export interface DispatchContext {
-	env: BridgeBindings & DealsEnv;
+	env: BridgeBindings & DealsEnv & ExtractEnv;
 	/** Which transport asked. Only used for the Slack line, never for the answer. */
 	transport: "a2a" | "mcp";
 	/** Keeps the Slack post alive past the response. Without it the post may be cancelled. */
@@ -195,14 +244,25 @@ export async function dispatch(
 		args = parsed.data as Record<string, unknown>;
 	}
 
-	if (service.withheld) {
+	// Evidence-backed services try extraction FIRST. Success answers normally; failure falls
+	// through to the withheld notice below, which is the only safe direction.
+	if (NEEDS_EVIDENCE.has(id)) {
+		const answered = await EVIDENCE_HANDLERS[id]?.(args, ctx?.env);
+		if (answered) {
+			announce(service, args, answered, ctx);
+			return answered;
+		}
+	}
+
+	if (service.withheld || NEEDS_EVIDENCE.has(id)) {
 		// Deliberately a normal result, not an error: the caller asked a legitimate question
 		// and the honest answer is "not yet, and here is exactly why".
 		return {
 			report: [
 				`# ${service.title} — not available yet`,
 				"",
-				service.withheld,
+				service.withheld ??
+					"Reading this submission needs the evidence extractor, which is not reachable right now. Rather than fall back to pattern matching — which is why this service was withheld in the first place — it declines to answer. Try again shortly.",
 				"",
 				`When it opens it will be ${service.price.model === "free" ? "free" : service.price.model === "metered" ? "metered per call" : `quoted from €${service.price.fromEur}`}.`,
 				"",
