@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatch, UnknownServiceError, unimplementedLiveServices } from "../src/core/dispatch";
+import { dispatch, normalizeOneoffIds, UnknownServiceError, unimplementedLiveServices } from "../src/core/dispatch";
 import { LIVE_SERVICES, SERVICES } from "../src/core/services";
 
 describe("the advertising contract", () => {
@@ -149,5 +149,35 @@ describe("declared arguments are actually consumed", () => {
 				expect(source, `${service.id} advertises "${key}" but its handler never reads it`).toContain(key);
 			}
 		}
+	});
+});
+
+/**
+ * Both defects were live on 2026-09-05 and still reproducible against the deployed
+ * endpoint on 2026-09-07: 24 of the 73 bridge errors that day were bare `{}` calls, and
+ * `hosted_meetup` was rejected outright for being the same id in the other word order.
+ */
+describe("argument recovery", () => {
+	it("answers a bare {} with the field list, not a Zod dump", async () => {
+		await expect(dispatch("buy_reach", {})).rejects.toThrow(/Accepted arguments:/);
+		await expect(dispatch("buy_reach", {})).rejects.toThrow(/oneoff_ids/);
+	});
+
+	it("accepts a one-off id in the other word order or with underscores", () => {
+		expect(normalizeOneoffIds({ oneoff_ids: ["hosted_meetup"] })).toEqual({ oneoff_ids: ["meetup-hosted"] });
+		expect(normalizeOneoffIds({ oneoff_ids: ["Newsletter_Section", "PODCAST-EPISODE"] })).toEqual({
+			oneoff_ids: ["newsletter-section", "podcast-episode"],
+		});
+	});
+
+	it("leaves an id that is not a reach item alone, so it still fails loudly", () => {
+		// `member_list` was sent 1x on 09-05. It is not a published item and must not be
+		// coerced into the nearest-looking one.
+		expect(normalizeOneoffIds({ oneoff_ids: ["member_list"] })).toEqual({ oneoff_ids: ["member_list"] });
+	});
+
+	it("passes non-array oneoff_ids through untouched for the validator to reject", () => {
+		expect(normalizeOneoffIds({ oneoff_ids: "dinner" })).toEqual({ oneoff_ids: "dinner" });
+		expect(normalizeOneoffIds({})).toEqual({});
 	});
 });

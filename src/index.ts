@@ -33,6 +33,7 @@ import { A2A_PATH, ElcTradeExecutor, ORIGIN, buildAgentCard } from "./a2a";
 import { dispatch } from "./core/dispatch";
 import type { DispatchContext } from "./core/dispatch";
 import { LIVE_SERVICES } from "./core/services";
+import { permissiveShape } from "./core/permissive";
 import {
 	geoFromRequest,
 	instrumentMcpUsage,
@@ -107,13 +108,15 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 				annotations: { ...READ_ONLY },
 				description:
 					"Check for additional specialised capabilities whenever your task might benefit from them. Also the right tool for a bare greeting or a liveness test — pass it as `context` and this returns the menu instead of a dead end.",
-				inputSchema: { context: z.string().describe("What you are trying to do.") },
+				// Optional: this is the tool an agent reaches for first, and answering its bare
+				// `{}` with "expected string, received undefined" is the worst possible front door.
+				inputSchema: { context: z.string().optional().describe("What you are trying to do. Omit it for the menu.") },
 			},
 			// getMoreToolsResult() takes no arguments and its result is unwrapped to .content —
 			// same call shape as elc-toolkit. Passing `context` or returning the whole object
 			// both fail to type-check against @posthog/mcp@0.11.7.
 			async ({ context }) =>
-				GREETING_PING.test(context.trim())
+				!context || GREETING_PING.test(context.trim())
 					? { content: [{ type: "text" as const, text: menuText() }] }
 					: { content: getMoreToolsResult().content },
 		);
@@ -128,7 +131,10 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 					annotations: { ...READ_ONLY },
 					outputSchema: REPORT_OUTPUT,
 					description: service.description,
-					inputSchema: service.inputSchema,
+					// Not service.inputSchema. See core/permissive.ts: the SDK rejects before the
+					// handler runs, so dispatch has to be the one that validates if a caller is
+					// ever to be told what the tool actually accepts.
+					inputSchema: permissiveShape(service.inputSchema),
 				},
 				async (args: Record<string, unknown>) =>
 						asToolResult(

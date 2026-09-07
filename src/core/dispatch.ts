@@ -13,7 +13,7 @@
  */
 
 import { z } from "zod";
-import { LIVE_SERVICES, SERVICES } from "./services";
+import { LIVE_SERVICES, ONEOFF_IDS, SERVICES } from "./services";
 import type { ServiceDefinition, ServiceResult } from "./types";
 import { evaluateMeetupTopic } from "./meetup-topic";
 import { assessSpeakerReadiness } from "./speaker-readiness";
@@ -187,6 +187,30 @@ export class InvalidArgumentsError extends Error {
 	}
 }
 
+/**
+ * `hosted_meetup` for `meetup-hosted`. Callers wrote the right item in the wrong shape and
+ * got the nine-value enum dump back — 09-05 produced three of these, plus five empty arrays.
+ *
+ * Only ever maps onto an id that already exists: case, separators and word order are the
+ * whole licence. `member_list` — sent once that day, and not a published reach item at all —
+ * passes through unchanged and is rejected by the enum, which is the correct answer. Guessing
+ * the nearest item would put something in a cart the buyer never asked for.
+ */
+export function normalizeOneoffIds(args: Record<string, unknown>): Record<string, unknown> {
+	const ids = args.oneoff_ids;
+	if (!Array.isArray(ids)) return args;
+	const byWords = new Map(ONEOFF_IDS.map((id) => [id.split("-").sort().join("-"), id as string]));
+	return {
+		...args,
+		oneoff_ids: ids.map((raw) => {
+			if (typeof raw !== "string") return raw;
+			const slug = raw.trim().toLowerCase().replace(/[\s_]+/g, "-");
+			if ((ONEOFF_IDS as readonly string[]).includes(slug)) return slug;
+			return byWords.get(slug.split("-").sort().join("-")) ?? raw;
+		}),
+	};
+}
+
 export class UnknownServiceError extends Error {
 	constructor(id: string) {
 		super(`Unknown service "${id}".`);
@@ -233,6 +257,9 @@ export async function dispatch(
 	// than a raw Zod dump afterwards.
 	let unknownKeys: string[] = [];
 	if (!service.withheld) {
+		// Before validation, so the enum judges the id the caller meant. Same place as the
+		// buy_reach rendering below: this door already special-cases its one priced service.
+		if (id === "buy_reach") args = normalizeOneoffIds(args);
 		const shape = z.object(service.inputSchema);
 		const parsed = (service.bridge ? shape.passthrough() : shape.strict()).safeParse(args);
 		if (!parsed.success) throw new InvalidArgumentsError(service, parsed.error);
