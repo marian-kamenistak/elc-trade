@@ -34,6 +34,9 @@ import { dispatch } from "./core/dispatch";
 import type { DispatchContext } from "./core/dispatch";
 import { LIVE_SERVICES } from "./core/services";
 import { permissiveShape } from "./core/permissive";
+// This repo keeps its own `permissiveShape` in core/, written first and tied to its service
+// registry; only the transport normaliser is taken from the shared module.
+import { normalizeMcpRequest } from "./mcp-tolerant";
 import {
 	geoFromRequest,
 	instrumentMcpUsage,
@@ -290,8 +293,16 @@ export default {
 				});
 			}
 			// request.cf only exists on the edge request; hand geo to the DO via ctx.props.
+			// MUST stay before normalizeMcpRequest: rebuilding the Request drops `request.cf`,
+			// which is the only place the geo bag can be read.
 			(ctx as ExecutionContext & { props?: McpGeo }).props = geoFromRequest(request);
-			return ElcTrade.serve("/mcp/trade").fetch(request, env, ctx);
+			// `permissiveShape` already lets a bare `{}` through to dispatch, but the MCP spec
+			// makes `params.arguments` itself optional and the SDK does not — it hands `undefined`
+			// straight to `z.object(...).parse()`, so a tools/call with no `arguments` key at all
+			// was still answered with "expected object, received undefined". One such call reached
+			// this server in the 30 days to 2026-09-11.
+			const normalized = await normalizeMcpRequest(request);
+			return ElcTrade.serve("/mcp/trade").fetch(normalized, env, ctx);
 		}
 
 		return new Response(
