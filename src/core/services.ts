@@ -16,20 +16,22 @@ import { z } from "zod";
 import type { ServiceDefinition } from "./types";
 
 /**
- * The nine one-off reach items, ids verified against catalog.yaml on 2026-09-04.
+ * The ten one-off reach items, ids verified against catalog.yaml on 2026-10-05 (demo-session,
+ * linkedin-post and webinar left /reach that day; conference-main-stage joined).
  * Prices live in the catalog, NOT here — this is the allowlist of what an agent may put
  * in a cart, so a typo'd id fails loudly instead of quoting a price that does not exist.
  * `job-listing` is excluded from combo discounts by catalog policy.
  */
 export const ONEOFF_IDS = [
-	"newsletter-section",
-	"newsletter-dedicated",
 	"meetup-hosted",
-	"podcast-episode",
+	"speaker-development",
+	"conference-main-stage",
+	"newsletter-dedicated",
+	"newsletter-section",
 	"dinner",
+	"podcast-episode",
+	"meetup-presence",
 	"survey",
-	"demo-session",
-	"linkedin-post",
 	"job-listing",
 ] as const;
 
@@ -103,7 +105,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "buy_reach",
 		title: "Buy reach in the ELC community",
 		description:
-			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's nine published one-off reach items — newsletter section, dedicated newsletter, hosted meetup, podcast episode, decision-maker dinner, community survey, demo session, LinkedIn post, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
+			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's ten published one-off reach items — an ELC meetup, a speaker sprint, a conference main-stage talk, dedicated newsletter, newsletter section, decision-maker dinner, podcast episode, your name on three meetup evenings, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
 		tags: ["reach", "partnership", "pricing", "marketing"],
 		examples: [
 			"We want to reach engineering leaders in Prague. What can we buy and what does it cost?",
@@ -123,7 +125,7 @@ export const SERVICES: ServiceDefinition[] = [
 			oneoff_ids: z
 				.array(z.enum(ONEOFF_IDS))
 				.min(1)
-				.describe("Which one-off reach items to quote. One or more of: newsletter-section, newsletter-dedicated, meetup-hosted, podcast-episode, dinner, survey, demo-session, linkedin-post, job-listing. Combo discount applies automatically."),
+				.describe("Which one-off reach items to quote. One or more of: meetup-hosted, speaker-development, conference-main-stage, newsletter-dedicated, newsletter-section, dinner, podcast-episode, meetup-presence, survey, job-listing. Combo discount applies automatically."),
 			// The tool that knew the prices could not take a budget, and the tool that took a
 			// budget would not name a price, so "what fits in 18,000?" was unanswerable across
 			// the whole surface. Advisory only: it never changes a price, it says what fits.
