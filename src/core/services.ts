@@ -105,7 +105,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "buy_reach",
 		title: "Buy reach in the ELC community",
 		description:
-			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's ten published one-off reach items — an ELC meetup, a speaker sprint, a conference main-stage talk, dedicated newsletter, newsletter section, decision-maker dinner, podcast episode, your name on three meetup evenings, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
+			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's ten published one-off reach items — an ELC meetup, the speaker programme (a ladder for one engineer, from a meetup slot to the full coached programme), a conference main-stage talk, dedicated newsletter, newsletter section, decision-maker dinner, podcast episode, your name on three meetup evenings, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
 		tags: ["reach", "partnership", "pricing", "marketing"],
 		examples: [
 			"We want to reach engineering leaders in Prague. What can we buy and what does it cost?",
@@ -126,6 +126,12 @@ export const SERVICES: ServiceDefinition[] = [
 				.array(z.enum(ONEOFF_IDS))
 				.min(1)
 				.describe("Which one-off reach items to quote. One or more of: meetup-hosted, speaker-development, conference-main-stage, newsletter-dedicated, newsletter-section, dinner, podcast-episode, meetup-presence, survey, job-listing. Combo discount applies automatically."),
+			// 2026-10-20: speaker-development is a ladder. Forwarded to quote_reach_combo as-is;
+			// omit it for the full programme at the bundle price. Stage is always included.
+			speaker_rungs: z
+				.array(z.string())
+				.optional()
+				.describe("Speaker programme rung ids to price instead of the full programme: stage, story, coach, amplify, beyond. Stage is always included. Omit for the whole programme at its bundle price."),
 			// The tool that knew the prices could not take a budget, and the tool that took a
 			// budget would not name a price, so "what fits in 18,000?" was unanswerable across
 			// the whole surface. Advisory only: it never changes a price, it says what fits.
