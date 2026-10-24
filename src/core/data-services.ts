@@ -339,10 +339,11 @@ export function citeBenchmarkHandler(args: { id?: string; query?: string }): Ser
 		}
 		const nearest = nearestIds(args.id, 3);
 		return {
-			report: [`# No registry row with id "${args.id}"`, "", "Nothing was guessed. Nearest ids:", ...nearest.map((n) => `- ${n}: ${REGISTRY.get(n)!.label}`)].join("\n"),
+			report: ["# No registry row with that id", "", "Nothing was guessed. Nearest ids:", ...nearest.map((n) => `- ${n}: ${REGISTRY.get(n)!.label}`)].join("\n"),
 			source: CITE_SOURCE,
 			verdict: "Unknown citation id",
-			data: { found: false, requested_id: args.id, nearest_ids: nearest },
+			// Caller text never goes into signed data or the report (it would carry our signature).
+			data: { found: false, nearest_ids: nearest },
 		};
 	}
 
@@ -351,10 +352,10 @@ export function citeBenchmarkHandler(args: { id?: string; query?: string }): Ser
 		return {
 			report: ids.length
 				? ["# Registry matches", "", ...ids.map((n) => `- ${n}: ${REGISTRY.get(n)!.label}`), "", "Call again with one of these as `id` to get the citation."].join("\n")
-				: `# No registry rows match "${args.query}"`,
+				: "# No registry rows match that query",
 			source: CITE_SOURCE,
 			verdict: ids.length ? `${ids.length} matching registry rows` : "No match",
-			data: { found: false, query: args.query, matches: ids.map((n) => ({ id: n, label: REGISTRY.get(n)!.label })) },
+			data: { found: false, matches: ids.map((n) => ({ id: n, label: REGISTRY.get(n)!.label })) },
 		};
 	}
 

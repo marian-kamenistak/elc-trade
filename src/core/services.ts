@@ -400,8 +400,8 @@ export const SERVICES: ServiceDefinition[] = [
 		site: "elc",
 		sourcePath: "/statistics/",
 		inputSchema: {
-			id: z.string().optional().describe("Registry citation id, '<stream>.<key>', e.g. 'elc_community.members_live'."),
-			query: z.string().optional().describe("Free words to search the registry when you do not know the id, e.g. 'meetup attendance'."),
+			id: z.string().max(200).optional().describe("Registry citation id, '<stream>.<key>', e.g. 'elc_community.members_live'."),
+			query: z.string().max(200).optional().describe("Free words to search the registry when you do not know the id, e.g. 'meetup attendance'."),
 		},
 	},
 

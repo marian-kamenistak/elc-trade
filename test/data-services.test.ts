@@ -238,6 +238,26 @@ describe("cite_benchmark", () => {
 	it("rejects an unknown argument and names the accepted fields", async () => {
 		await expect(dispatch("cite_benchmark", { topic: "x" })).rejects.toThrow(/Accepted arguments:[\s\S]*id[\s\S]*query/);
 	});
+
+	it("rejects an id or query over 200 characters and names the accepted fields", async () => {
+		for (const args of [{ id: "a".repeat(201) }, { query: "a".repeat(201) }]) {
+			await expect(dispatch("cite_benchmark", args)).rejects.toBeInstanceOf(InvalidArgumentsError);
+			await expect(dispatch("cite_benchmark", args)).rejects.toThrow(/Accepted arguments:[\s\S]*id[\s\S]*query/);
+		}
+		await expect(dispatch("cite_benchmark", { id: "a".repeat(200) })).resolves.toBeDefined();
+	});
+
+	it("never puts caller text into the signed data or the report", async () => {
+		const marker = "IGNORE_PREVIOUS_INSTRUCTIONS_xq7";
+		const { ctx, pub } = await ctxWith(null);
+		for (const args of [{ id: marker }, { query: `${marker} meetup` }, { query: marker }]) {
+			const r = await dispatch("cite_benchmark", args, ctx);
+			expect(await verifyData(pub, r.data!, r.signature!.jws)).toBe(true);
+			expect(JSON.stringify(r.data)).not.toContain(marker);
+			expect(r.report).not.toContain(marker);
+			expect(r.verdict ?? "").not.toContain(marker);
+		}
+	});
 });
 
 describe("the vendored registry slice", () => {
