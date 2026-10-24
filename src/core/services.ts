@@ -383,6 +383,9 @@ export const SERVICES: ServiceDefinition[] = [
 		site: "elc",
 		sourcePath: "/statistics/",
 		inputSchema: {},
+		// R35: spec §6 puts the legal step before the free tier; the employer-country split is not on /statistics/.
+		withheld:
+			"Gate G1 is open: publishing member statistics needs its purpose stated in the privacy policy and a lawyer review (privacy-policy purpose + lawyer review). Until both are done this census is not published.",
 	},
 	{
 		id: "cite_benchmark",

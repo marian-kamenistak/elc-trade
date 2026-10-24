@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dispatch, InvalidArgumentsError, signDataResult } from "../src/core/dispatch";
-import { LIVE_SERVICES } from "../src/core/services";
-import { STALE_AFTER_HOURS } from "../src/core/data-services";
+import { LIVE_SERVICES, SERVICES } from "../src/core/services";
+import { censusHandler, STALE_AFTER_HOURS } from "../src/core/data-services";
 import { writeSnapshot } from "../src/data/snapshot-store";
 import type { Figure, SnapshotBody } from "../src/data/types";
 import { verifyData } from "../src/trust/sign";
@@ -61,38 +61,57 @@ async function ctxWith(asOf: string | null, signing = true) {
 	return { ctx: { env, transport: "mcp" as const }, pub };
 }
 
+const CENSUS = SERVICES.find((x) => x.id === "get_member_census")!;
+
+/** R35: the census is withheld, so dispatch answers with the notice; the handler is tested directly, signed as dispatch would. */
+async function census(ctx?: { env?: unknown }) {
+	const env = ctx?.env as Parameters<typeof censusHandler>[1] & Parameters<typeof signDataResult>[2];
+	return signDataResult(CENSUS, await censusHandler({}, env), env);
+}
+
 describe("get_member_census", () => {
-	it("is advertised and free", () => {
-		const s = LIVE_SERVICES.find((x) => x.id === "get_member_census");
-		expect(s?.price).toEqual({ model: "free" });
-		expect(s?.kind).toBe("data");
+	it("is withheld until G1 and not advertised; cite_benchmark stays live", async () => {
+		expect(CENSUS.price).toEqual({ model: "free" });
+		expect(CENSUS.kind).toBe("data");
+		expect(CENSUS.withheld!.length).toBeGreaterThanOrEqual(40);
+		expect(CENSUS.withheld).toMatch(/G1/);
+		expect(CENSUS.withheld).toMatch(/privacy-policy purpose \+ lawyer review/);
+		expect(LIVE_SERVICES.map((x) => x.id)).not.toContain("get_member_census");
 		expect(LIVE_SERVICES.map((x) => x.id)).toContain("cite_benchmark");
+	});
+
+	it("dispatch answers with the withheld notice, never the census, even with a fresh snapshot", async () => {
+		const { ctx } = await ctxWith(daysAgo(0));
+		const r = await dispatch("get_member_census", {}, ctx);
+		expect(r.verdict).toBe("Not available yet");
+		expect(r.data).toEqual({ withheld: true, service: "get_member_census" });
+		expect(r.signature).toBeUndefined();
 	});
 
 	it("says 'Not computed yet' with no snapshot, without throwing or signing", async () => {
 		const { ctx } = await ctxWith(null);
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		expect(r.verdict).toBe("Not computed yet");
 		expect(r.data?.figures).toBeUndefined();
 		expect(r.signature).toBeUndefined();
 	});
 
 	it("says 'Not computed yet' when no bucket is bound at all", async () => {
-		const r = await dispatch("get_member_census", {});
+		const r = await census();
 		expect(r.verdict).toBe("Not computed yet");
 	});
 
 	it("says 'Not computed yet' for a corrupt snapshot", async () => {
 		const { bucket, objects } = memoryBucket();
 		objects.set("snapshots/member_census/latest.json", "{not json");
-		const r = await dispatch("get_member_census", {}, { env: { SNAPSHOTS: bucket } as never, transport: "mcp" });
+		const r = await census({ env: { SNAPSHOTS: bucket } });
 		expect(r.verdict).toBe("Not computed yet");
 	});
 
 	it("carries the snapshot's own as_of and stale:true after 72 h, never today's date", async () => {
 		const asOf = daysAgo(4);
 		const { ctx } = await ctxWith(asOf);
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		expect(STALE_AFTER_HOURS).toBe(72);
 		expect(r.data?.stale).toBe(true);
 		expect(r.data?.as_of).toBe(asOf);
@@ -102,14 +121,14 @@ describe("get_member_census", () => {
 
 	it("is not stale for a fresh snapshot", async () => {
 		const { ctx } = await ctxWith(daysAgo(0));
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		expect(r.data?.stale).toBe(false);
 		expect(r.data?.snapshot_sha256).toMatch(/^[0-9a-f]{64}$/);
 	});
 
 	it("passes every figure through with n, denominator, coverage_pct, as_of and method_id", async () => {
 		const { ctx } = await ctxWith(daysAgo(0));
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		const figures = r.data?.figures as Record<string, Figure>;
 		expect(Object.keys(figures).length).toBeGreaterThan(0);
 		for (const f of Object.values(figures)) {
@@ -119,7 +138,7 @@ describe("get_member_census", () => {
 
 	it("signs data so the signature verifies, also after re-ordering (transport round trip)", async () => {
 		const { ctx, pub } = await ctxWith(daysAgo(0));
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		expect(r.signature?.kid).toBe("k1");
 		expect(await verifyData(pub, r.data!, r.signature!.jws)).toBe(true);
 		const reverseKeys = (v: unknown): unknown =>
@@ -137,7 +156,7 @@ describe("get_member_census", () => {
 
 	it("without a signing key returns the answer unsigned and says so (R26)", async () => {
 		const { ctx } = await ctxWith(daysAgo(0), false);
-		const r = await dispatch("get_member_census", {}, ctx);
+		const r = await census(ctx);
 		expect(r.signature).toBeUndefined();
 		expect(r.data?.signature_status).toBe("unavailable");
 		expect(r.data?.figures).toBeDefined();
@@ -147,19 +166,19 @@ describe("get_member_census", () => {
 		const { bucket } = memoryBucket();
 		await writeSnapshot(bucket, body(daysAgo(0)));
 		const env = { SNAPSHOTS: bucket, SIGNING_PRIVATE_JWK: "garbage", SIGNING_KID: "k1" } as never;
-		const r = await dispatch("get_member_census", {}, { env, transport: "mcp" });
+		const r = await census({ env });
 		expect(r.signature).toBeUndefined();
 		expect(r.data?.signature_status).toBe("unavailable");
 	});
 
-	it("rejects an unknown argument inside dispatch", async () => {
-		await expect(dispatch("get_member_census", { city: "Prague" })).rejects.toBeInstanceOf(InvalidArgumentsError);
-		await expect(dispatch("get_member_census", { city: "Prague" })).rejects.toThrow(/Accepted arguments/);
+	it("while withheld, answers the notice for any arguments instead of validating them", async () => {
+		const r = await dispatch("get_member_census", { city: "Prague" });
+		expect(r.verdict).toBe("Not available yet");
 	});
 });
 
 describe("signing in dispatch", () => {
-	const service = LIVE_SERVICES.find((x) => x.id === "get_member_census")!;
+	const service = CENSUS;
 
 	it("signs data that carries an undefined field, and what is returned is what was signed", async () => {
 		const { priv, pub } = await makeKey();
@@ -303,7 +322,7 @@ describe("census staleness boundary", () => {
 		await writeSnapshot(bucket, body(asOf));
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(at(hours));
-		return dispatch("get_member_census", {}, { env: { SNAPSHOTS: bucket } as never, transport: "mcp" });
+		return census({ env: { SNAPSHOTS: bucket } });
 	}
 
 	it("is not stale at 71 h", async () => {
