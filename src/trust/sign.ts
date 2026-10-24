@@ -32,9 +32,19 @@ function signingInput(protectedB64: string, data: Record<string, unknown>): Uint
 
 // Why two forms: the secret is stored base64url (no quotes or braces, so any ~/.env loader keeps it
 // intact; a raw JSON line is mangled by `source`). Raw JSON is still accepted for local .dev.vars.
+//
+// Why only kty/crv/x(/d): the Workers runtime rejects an Ed25519 JWK carrying `alg: "Ed25519"`
+// (and sometimes key_ops/ext) which Node's export emits and accepts. Handing importKey just the
+// key material is portable to both; vitest on Node alone would never catch the difference.
 function parsePrivateJwk(value: string): JsonWebKey {
 	const v = value.trim();
-	return JSON.parse(v.startsWith("{") ? v : new TextDecoder().decode(unb64u(v)));
+	const { kty, crv, x, d } = JSON.parse(v.startsWith("{") ? v : new TextDecoder().decode(unb64u(v)));
+	return { kty, crv, x, d };
+}
+
+function publicJwk(jwk: JsonWebKey): JsonWebKey {
+	const { kty, crv, x } = jwk;
+	return { kty, crv, x };
 }
 
 export async function signData(
@@ -54,7 +64,7 @@ export async function verifyData(jwk: JsonWebKey, data: Record<string, unknown>,
 		if (parts.length !== 3 || parts[1] !== "") return false;
 		const header = JSON.parse(new TextDecoder().decode(unb64u(parts[0])));
 		if (header.alg !== "EdDSA" || header.b64 !== false || !Array.isArray(header.crit) || !header.crit.includes("b64")) return false;
-		const key = await crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["verify"]);
+		const key = await crypto.subtle.importKey("jwk", publicJwk(jwk), { name: "Ed25519" }, false, ["verify"]);
 		return await crypto.subtle.verify({ name: "Ed25519" }, key, unb64u(parts[2]), signingInput(parts[0], data));
 	} catch {
 		return false;

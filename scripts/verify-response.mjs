@@ -56,7 +56,7 @@ export async function verifyResult(result, jwks) {
 	}
 	if (header.kid !== sig.kid) return { ok: false, reason: "header kid does not match signature.kid" };
 	try {
-		const key = await crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["verify"]);
+		const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, crv: jwk.crv, x: jwk.x }, { name: "Ed25519" }, false, ["verify"]);
 		const input = new TextEncoder().encode(`${parts[0]}.${canonicalize(result.data)}`);
 		const ok = await crypto.subtle.verify({ name: "Ed25519" }, key, unb64u(parts[2]), input);
 		return ok ? { ok: true } : { ok: false, reason: "signature does not match data" };

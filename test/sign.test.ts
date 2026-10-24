@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { signData, verifyData } from "../src/trust/sign";
 
 // Why: one throwaway Ed25519 pair per run; the real private key never appears in tests.
@@ -53,6 +53,30 @@ describe("signData / verifyData", () => {
 		const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(`${header}.{}`)));
 		const b64 = btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 		expect(await verifyData(pub, {}, `${header}..${b64}`)).toBe(false);
+	});
+
+	it("signs and verifies with JWKs carrying alg, key_ops, ext, use and kid", async () => {
+		const { priv, pub } = await makeKey();
+		const noisyPriv = { ...priv, alg: "Ed25519", key_ops: ["sign"], ext: true, use: "sig", kid: "x" };
+		const noisyPub = { ...pub, alg: "Ed25519", key_ops: ["verify"], ext: true, use: "sig", kid: "x" };
+		const sig = await signData({ SIGNING_PRIVATE_JWK: JSON.stringify(noisyPriv), SIGNING_KID: "k1" }, data);
+		expect(await verifyData(noisyPub, data, sig!.jws)).toBe(true);
+	});
+
+	it("hands importKey only kty/crv/x(/d), never alg, key_ops or ext (Workers runtime rejects them)", async () => {
+		const { priv, pub } = await makeKey();
+		const spy = vi.spyOn(crypto.subtle, "importKey");
+		try {
+			const noisy = { ...priv, alg: "Ed25519", key_ops: ["sign"], ext: true };
+			const sig = await signData({ SIGNING_PRIVATE_JWK: JSON.stringify(noisy), SIGNING_KID: "k1" }, data);
+			await verifyData({ ...pub, alg: "Ed25519", key_ops: ["verify"], ext: true }, data, sig!.jws);
+			const jwks = spy.mock.calls.map((c) => c[1] as Record<string, unknown>);
+			expect(jwks).toHaveLength(2);
+			expect(Object.keys(jwks[0]).sort()).toEqual(["crv", "d", "kty", "x"]);
+			expect(Object.keys(jwks[1]).sort()).toEqual(["crv", "kty", "x"]);
+		} finally {
+			spy.mockRestore();
+		}
 	});
 
 	it("fails when one figure's n changes", async () => {
