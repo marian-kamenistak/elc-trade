@@ -24,10 +24,13 @@ Code: `src/paid-gateway.ts` (JWT check), `src/data-http.ts` (the door), `test/pa
 | meetup benchmarks | `https://www.engineeringleaders.io/mcp/trade/data/meetup-benchmarks` |
 
 `GET` only. Each product has exactly one URL: `www`, no trailing slash. The expected `aud` is that
-constant, never rebuilt from the request, so an apex-host request or one with a query string is
-checked against the same `aud`.
+constant, never rebuilt from the request, so a query string does not change it.
 
-Order, per request: switch off → 404; not GET → 405; trailing slash or unknown slug → 404;
+The apex `engineeringleaders.io` is routed to this Worker too, but the gateway rule covers `www`
+only. So any other host gets a **308 to the identical www URL** (path + query) before any header or
+token is read: a www token replayed at the apex, where nothing charges, never reaches verification.
+
+Order, per request: switch off → 404; host not `www` → 308 to www; not GET → 405; trailing slash or unknown slug → 404;
 withheld → 404 with notice; payment not verified → 402 with the free preview and `reason`;
 rate limited (`PAID_RATE`, keyed `gateway:<jti>` or the token hash) → 429; no snapshot → 200
 "Not computed yet" with `PAYMENT-SETTLEMENT: {"amount":"0"}`; otherwise 200, the full signed answer,
@@ -35,7 +38,8 @@ rate limited (`PAID_RATE`, keyed `gateway:<jti>` or the token hash) → 429; no 
 `PAYMENT-RESPONSE` never. Every response is `cache-control: no-store`.
 
 The JWT is verified with jose against the pinned JWKS `https://payments.cloudflare.com/certs`
-only (`EdDSA`, `aud`, `exp` required, `nbf` checked when present), then `scheme` must be `upto` and
+only (`EdDSA` or `Ed25519`, `aud`, `exp` required, `nbf` checked when present, `iat` required and
+no more than 10 min old nor in the future), then `scheme` must be `upto` and
 `amount` a digit string ≥ 500000.
 
 ## Dashboard rules (one per product)
@@ -62,6 +66,8 @@ Stripe deposit address as the receiving wallet at all, and on which network/toke
 4. **One real paid call** to each URL with an x402 client. Expect 200, `data.full`, a
    `signature` that `node scripts/verify-response.mjs` accepts, and `PAYMENT-SETTLEMENT:
    {"amount":"500000"}`. A call without payment must come back 402 from the edge.
+   **Replay a valid token against the apex host** (`https://engineeringleaders.io/mcp/trade/data/<slug>`
+   with the same `PAYMENT-CONTEXT`) → must not return 200. Expected: 308 to www.
 5. **Confirm the settlement in the dashboard** (amount $0.50, right wallet). Then tail the Worker
    for 60 s: zero `console.error`, zero exceptions.
 

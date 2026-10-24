@@ -3,6 +3,9 @@
  *
  * Why this order, and why it is load-bearing:
  *   1. PAYMENT_GATEWAY_ENABLED !== "1"  → 404. The door does not exist until the switch is on.
+ *   1b. host is not www.engineeringleaders.io → 308 to the same www URL (path + query), before any
+ *      header or token is read. The gateway rule covers www only, and the apex is routed here too:
+ *      without this, a buyer could replay a www token at the apex, where nothing charges.
  *   2. not GET, trailing slash, unknown slug → 405 / 404. One URL per product = one dashboard rule.
  *   3. withheld (G1, exactly withheldFor on the MCP door) → 404 with the withheld notice. Before any
  *      token is looked at, so a withheld product never returns data or a settlement, paid or not.
@@ -34,6 +37,8 @@ export interface DataHttpEnv extends CensusEnv, SigningEnv, PreviewEnv {
 
 const SERVICE_OF = { leader_composition: "get_leader_composition", meetup_benchmarks: "get_meetup_benchmarks" } as const;
 
+const CANONICAL_HOST = "www.engineeringleaders.io";
+
 const PATH = /^\/mcp\/trade\/data\/([a-z-]+)$/;
 
 // no-store: a paid answer must never sit in an edge or browser cache for the next caller.
@@ -48,11 +53,16 @@ const settle = (atomic: bigint) => ({ "PAYMENT-SETTLEMENT": JSON.stringify({ amo
 
 export async function handleDataRequest(request: Request, env: DataHttpEnv, deps: { jwks: JWTVerifyGetKey } = { jwks: gatewayJwks() }): Promise<Response> {
 	if (env.PAYMENT_GATEWAY_ENABLED !== "1") return new Response("Not found.\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+	const url = new URL(request.url);
+	if (url.hostname !== CANONICAL_HOST) {
+		const to = new URL(`${url.pathname}${url.search}`, `https://${CANONICAL_HOST}`);
+		return new Response(null, { status: 308, headers: { location: to.href, "cache-control": "no-store" } });
+	}
 	if (request.method !== "GET") return json({ error: "Method not allowed. Use GET." }, 405, { allow: "GET" });
 
-	// The aud is the canonical URL, never rebuilt from the request: the apex host, a query string or
-	// a proxy rewrite cannot change what the token must have been issued for.
-	const slug = PATH.exec(new URL(request.url).pathname)?.[1];
+	// The aud is the canonical URL, never rebuilt from the request: a query string or a proxy rewrite
+	// cannot change what the token must have been issued for.
+	const slug = PATH.exec(url.pathname)?.[1];
 	const method = slug && Object.prototype.hasOwnProperty.call(DATA_SLUG, slug) ? DATA_SLUG[slug as keyof typeof DATA_SLUG] : undefined;
 	if (!method) return json({ error: "Not found.", products: Object.values(DATA_URL) }, 404);
 

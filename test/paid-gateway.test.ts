@@ -63,11 +63,14 @@ const gw = await generateKeyPair("EdDSA", { crv: "Ed25519" });
 const other = await generateKeyPair("EdDSA", { crv: "Ed25519" });
 const jwks: JWTVerifyGetKey = createLocalJWKSet({ keys: [{ ...(await exportJWK(gw.publicKey)), kid: "gw1", alg: "EdDSA" }] });
 
-async function token(claims: Record<string, unknown> = {}, opts: { aud?: string; key?: CryptoKey; exp?: number | string; jti?: string | null } = {}) {
+async function token(
+	claims: Record<string, unknown> = {},
+	opts: { aud?: string; key?: CryptoKey; exp?: number | string; jti?: string | null; alg?: string; kid?: string; iat?: number } = {},
+) {
 	const t = new SignJWT({ scheme: "upto", amount: "500000", ...claims })
-		.setProtectedHeader({ alg: "EdDSA", kid: "gw1" })
+		.setProtectedHeader({ alg: opts.alg ?? "EdDSA", kid: opts.kid ?? "gw1" })
 		.setAudience(opts.aud ?? AUD_LC)
-		.setIssuedAt()
+		.setIssuedAt(opts.iat)
 		.setExpirationTime(opts.exp ?? "5m");
 	if (opts.jti !== null) t.setJti(opts.jti ?? "jti-1");
 	return t.sign(opts.key ?? gw.privateKey);
@@ -114,6 +117,21 @@ describe("verifyGatewayPayment", () => {
 	it("a valid upto authorisation of 500000 → ok", async () => {
 		const r = await check(req(AUD_LC, await token()));
 		expect(r).toMatchObject({ ok: true, scheme: "upto", authorizedAtomic: 500000n, paymentId: "jti:jti-1" });
+	});
+	it("R33: an alg 'Ed25519' token verifies against a key with no alg tag", async () => {
+		const k = await generateKeyPair("Ed25519");
+		const bare = createLocalJWKSet({ keys: [{ ...(await exportJWK(k.publicKey)), kid: "gw2" }] });
+		const jwt = await token({}, { alg: "Ed25519", kid: "gw2", key: k.privateKey });
+		const r = await verifyGatewayPayment(req(AUD_LC, jwt), { jwks: bare }, { aud: AUD_LC, minAtomic: 500000n });
+		expect(r).toMatchObject({ ok: true, authorizedAtomic: 500000n });
+	});
+	it("R33: iat 5 min in the future → invalid", async () => {
+		const now = Math.floor(Date.now() / 1000);
+		expect(await check(req(AUD_LC, await token({}, { iat: now + 300, exp: now + 900 })))).toEqual({ ok: false, reason: "invalid" });
+	});
+	it("R33: iat 11 min old → invalid, even with exp still ahead", async () => {
+		const now = Math.floor(Date.now() / 1000);
+		expect(await check(req(AUD_LC, await token({}, { iat: now - 660, exp: now + 300 })))).toEqual({ ok: false, reason: "invalid" });
 	});
 	it("no jti → the payment id is the token's hash", async () => {
 		const jwt = await token({}, { jti: null });
@@ -223,10 +241,23 @@ describe("handleDataRequest", () => {
 		expect(((await res.json()) as { data: { full: unknown } }).data.full).toEqual({ events: benchmarks.full.events });
 	});
 
-	it("the apex host and a query string normalise to the canonical www aud", async () => {
+	it("a query string on www still checks against the canonical aud", async () => {
 		const { env } = await setup();
-		const res = await call(env, req("https://engineeringleaders.io/mcp/trade/data/leader-composition?x=1", await token()));
+		const res = await call(env, req(`${AUD_LC}?x=1`, await token()));
 		expect(res.status).toBe(200);
+	});
+
+	it("the apex host with a valid token → 308 to the identical www URL, no data, no settlement, token never read", async () => {
+		const { env, limit } = await setup();
+		const r = req("https://engineeringleaders.io/mcp/trade/data/leader-composition?x=1&y=2", await token());
+		const read = vi.spyOn(r.headers, "get");
+		const res = await call(env, r);
+		expect(res.status).toBe(308);
+		expect(res.headers.get("location")).toBe(`${AUD_LC}?x=1&y=2`);
+		expect(res.headers.get("PAYMENT-SETTLEMENT")).toBeNull();
+		expect(await res.text()).toBe("");
+		expect(read).not.toHaveBeenCalled();
+		expect(limit).not.toHaveBeenCalled();
 	});
 
 	it("a trailing slash or an unknown slug → 404, so each product has exactly one URL", async () => {

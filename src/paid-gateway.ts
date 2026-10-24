@@ -53,8 +53,16 @@ export async function verifyGatewayPayment(
 
 	let payload: Record<string, unknown>;
 	try {
-		// Signature first, then exp/nbf/aud. A token without exp would never expire, so it is required.
-		({ payload } = await jwtVerify(token, deps.jwks, { algorithms: ["EdDSA"], audience: expected.aud, requiredClaims: ["exp"] }));
+		// Signature first, then exp/nbf/aud/iat. A token without exp would never expire, so it is required.
+		// R33: "EdDSA" (today's JWKS) and the RFC 9864 name "Ed25519" both mean Ed25519 in jose 6.2.12,
+		// so a rename at Cloudflare does not fail every payment closed. maxTokenAge "10m" requires iat
+		// and rejects one in the future or older than 10 min, whatever exp says.
+		({ payload } = await jwtVerify(token, deps.jwks, {
+			algorithms: ["EdDSA", "Ed25519"],
+			audience: expected.aud,
+			requiredClaims: ["exp"],
+			maxTokenAge: "10m",
+		}));
 	} catch (err) {
 		// Only an authentic token gets this far with an aud failure, so wrong_aud is never a guess.
 		if (err instanceof errors.JWTClaimValidationFailed && err.claim === "aud") return { ok: false, reason: "wrong_aud" };
