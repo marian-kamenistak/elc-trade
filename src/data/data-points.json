@@ -68,15 +68,15 @@
 		},
 		"elc_community.members": {
 			"label": "ELC community members",
-			"value": 3300,
-			"display": "3,300+",
-			"verified": "2026-09-21"
+			"value": 4000,
+			"display": "4,000+",
+			"verified": "2026-10-24"
 		},
 		"elc_community.members_live": {
 			"label": "Exact live member count, as rendered on engineeringleaders.io",
-			"value": 3375,
-			"display": "3,375 members in September 2026",
-			"verified": "2026-09-21"
+			"value": 4008,
+			"display": "4,008 members in October 2026",
+			"verified": "2026-10-24"
 		},
 		"elc_community.newsletter_open_rate": {
 			"label": "Newsletter open rate",
