@@ -30,11 +30,18 @@ function signingInput(protectedB64: string, data: Record<string, unknown>): Uint
 	return enc.encode(`${protectedB64}.${canonicalize(data)}`);
 }
 
+// Why two forms: the secret is stored base64url (no quotes or braces, so any ~/.env loader keeps it
+// intact; a raw JSON line is mangled by `source`). Raw JSON is still accepted for local .dev.vars.
+function parsePrivateJwk(value: string): JsonWebKey {
+	const v = value.trim();
+	return JSON.parse(v.startsWith("{") ? v : new TextDecoder().decode(unb64u(v)));
+}
+
 export async function signData(
 	env: { SIGNING_PRIVATE_JWK: string; SIGNING_KID: string },
 	data: Record<string, unknown>,
 ): Promise<ServiceResult["signature"]> {
-	const key = await crypto.subtle.importKey("jwk", JSON.parse(env.SIGNING_PRIVATE_JWK), { name: "Ed25519" }, false, ["sign"]);
+	const key = await crypto.subtle.importKey("jwk", parsePrivateJwk(env.SIGNING_PRIVATE_JWK), { name: "Ed25519" }, false, ["sign"]);
 	const header = b64u(enc.encode(JSON.stringify({ alg: "EdDSA", kid: env.SIGNING_KID, b64: false, crit: ["b64"] })));
 	const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, signingInput(header, data)));
 	return { jws: `${header}..${b64u(sig)}`, kid: env.SIGNING_KID, jwks_url: JWKS_URL, signed: "data" };

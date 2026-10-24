@@ -36,6 +36,25 @@ describe("signData / verifyData", () => {
 		expect(await verifyData(pub, JSON.parse(JSON.stringify(data, null, 4)), sig!.jws)).toBe(true);
 	});
 
+	it("accepts the private JWK as raw JSON or as base64url(JSON)", async () => {
+		const { priv, pub } = await makeKey();
+		const b64 = btoa(JSON.stringify(priv)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+		expect(b64).toMatch(/^[A-Za-z0-9_-]+$/);
+		const a = await signData({ SIGNING_PRIVATE_JWK: JSON.stringify(priv), SIGNING_KID: "k1" }, data);
+		const b = await signData({ SIGNING_PRIVATE_JWK: b64, SIGNING_KID: "k1" }, data);
+		expect(a!.jws).toBe(b!.jws); // Ed25519 is deterministic
+		expect(await verifyData(pub, data, b!.jws)).toBe(true);
+	});
+
+	it("rejects a JWS whose header alg is not EdDSA", async () => {
+		const { priv, pub } = await makeKey();
+		const key = await crypto.subtle.importKey("jwk", priv, { name: "Ed25519" }, false, ["sign"]);
+		const header = btoa(JSON.stringify({ alg: "none", kid: "k1", b64: false, crit: ["b64"] })).replace(/=+$/, "");
+		const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(`${header}.{}`)));
+		const b64 = btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+		expect(await verifyData(pub, {}, `${header}..${b64}`)).toBe(false);
+	});
+
 	it("fails when one figure's n changes", async () => {
 		const { priv, pub } = await makeKey();
 		const sig = await signData({ SIGNING_PRIVATE_JWK: JSON.stringify(priv), SIGNING_KID: "k1" }, data);
@@ -101,5 +120,25 @@ describe("scripts/verify-response.mjs", () => {
 		const bad = run("bad.json");
 		expect(bad.status).toBe(1);
 		expect(bad.stdout).toMatch(/^signature: INVALID \(/);
+	});
+
+	it("verifyResult rejects alg != EdDSA, a header kid that differs from signature.kid, and a kid absent from the JWKS", async () => {
+		// @ts-expect-error plain .mjs script, no types
+		const script = await import("../scripts/verify-response.mjs");
+		const { priv, pub } = await makeKey();
+		const jwks = { keys: [{ ...pub, kid: "k1" }] };
+		const key = await crypto.subtle.importKey("jwk", priv, { name: "Ed25519" }, false, ["sign"]);
+		const mk = async (hdr: Record<string, unknown>) => {
+			const header = btoa(JSON.stringify(hdr)).replace(/=+$/, "");
+			const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(`${header}.${script.canonicalize(data)}`)));
+			return `${header}..${btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+		};
+		const good = { alg: "EdDSA", kid: "k1", b64: false, crit: ["b64"] };
+		expect((await script.verifyResult({ data, signature: { jws: await mk(good), kid: "k1" } }, jwks)).ok).toBe(true);
+		expect((await script.verifyResult({ data, signature: { jws: await mk({ ...good, alg: "HS256" }), kid: "k1" } }, jwks)).ok).toBe(false);
+		const mismatch = await script.verifyResult({ data, signature: { jws: await mk({ ...good, kid: "other" }), kid: "k1" } }, jwks);
+		expect(mismatch).toMatchObject({ ok: false, reason: expect.stringMatching(/kid/) });
+		const absent = await script.verifyResult({ data, signature: { jws: await mk({ ...good, kid: "k2" }), kid: "k2" } }, jwks);
+		expect(absent).toMatchObject({ ok: false, reason: expect.stringMatching(/not found/) });
 	});
 });
