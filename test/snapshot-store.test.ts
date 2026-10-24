@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canonicalize } from "../src/trust/jcs";
-import { readLatest, runNightlySnapshots, verifySnapshot, writeSnapshot } from "../src/data/snapshot-store";
+import { nightlyScheduled, readLatest, runNightlySnapshots, verifySnapshot, writeSnapshot } from "../src/data/snapshot-store";
 import { sizeBandOf } from "../src/data/sources";
 import type { SnapshotBody, SourceData } from "../src/data/types";
 
@@ -149,5 +149,73 @@ describe("size bands from Attio employee_range", () => {
 		expect(["1-10", "11-50", "51-250", "251-1K", "1K-5K", "100K+", "", null, "huge"].map((r) => sizeBandOf(r))).toEqual([
 			"1-50", "1-50", "51-250", "251-1k", "1k+", "1k+", "unknown", "unknown", "unknown",
 		]);
+	});
+});
+
+describe("the writer never restarts the hash chain silently", () => {
+	it("throws and writes nothing when latest.json is tampered", async () => {
+		const { bucket, objects } = memoryBucket();
+		const stored = await writeSnapshot(bucket, body("2026-10-23"));
+		const tampered = JSON.stringify({ ...stored, full: { active_members: 9999 } });
+		objects.set("snapshots/member_census/latest.json", tampered);
+		const before = new Map(objects);
+
+		await expect(writeSnapshot(bucket, body("2026-10-24"))).rejects.toThrow(/hash verification/);
+		expect(objects).toEqual(before);
+		expect(objects.has("snapshots/member_census/2026-10-24.json")).toBe(false);
+	});
+
+	it("throws and writes nothing when the R2 read fails", async () => {
+		const { bucket, objects } = memoryBucket();
+		(bucket as unknown as { get: () => Promise<never> }).get = async () => {
+			throw new Error("R2 internal error");
+		};
+		await expect(writeSnapshot(bucket, body("2026-10-24"))).rejects.toThrow(/R2 internal error/);
+		expect(objects.size).toBe(0);
+	});
+
+	it("a broken chain in one method stops the nightly run before any method is written", async () => {
+		const { bucket, objects } = memoryBucket();
+		objects.set("snapshots/meetup_benchmarks/latest.json", "{not json");
+		const realError = console.error;
+		const logged: string[] = [];
+		console.error = (m: string) => void logged.push(m);
+		try {
+			const out = await runNightlySnapshots({ SNAPSHOTS: bucket }, async () => ({
+				asOf: "2026-10-24",
+				activeMembers: 0,
+				members: [],
+				conference: [],
+				events: [],
+			}));
+			expect(out).toBeNull();
+		} finally {
+			console.error = realError;
+		}
+		expect([...objects.keys()]).toEqual(["snapshots/meetup_benchmarks/latest.json"]);
+		expect(logged.join("\n")).toMatch(/snapshot chain failed.*meetup_benchmarks\/latest\.json is not valid JSON/);
+	});
+});
+
+describe("scheduled handler (R23)", () => {
+	it("awaits the run itself instead of handing it to waitUntil", async () => {
+		const { bucket, objects } = memoryBucket();
+		const ctx = {
+			waitUntil: () => {
+				throw new Error("waitUntil must not be used");
+			},
+		} as unknown as ExecutionContext;
+		const realError = console.error;
+		const logged: string[] = [];
+		console.error = (m: string) => void logged.push(m);
+		try {
+			// No ATTIO_TOKEN: the run fails and logs. A fire-and-forget handler resolves before the
+			// log line exists; only an awaited one has already logged when it returns.
+			await nightlyScheduled({} as ScheduledController, { SNAPSHOTS: bucket }, ctx);
+			expect(logged.join("\n")).toMatch(/fetch\/aggregate failed.*ATTIO_TOKEN not set/);
+		} finally {
+			console.error = realError;
+		}
+		expect(objects.size).toBe(0);
 	});
 });

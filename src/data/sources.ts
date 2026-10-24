@@ -37,6 +37,29 @@ const CONFERENCE_LISTS = [
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Errors from here reach console.error and Slack, so they carry only method, path, status and an
+ * API error code. Never a response body (Attio echoes names and emails back in validation messages)
+ * and never V8's JSON.parse message, which quotes the body it choked on.
+ */
+function parseJson<T>(text: string, label: string): T {
+	try {
+		return JSON.parse(text) as T;
+	} catch {
+		throw new Error(`invalid JSON from ${label}`);
+	}
+}
+
+/** Attio's machine-readable error code ("validation_type"), if the body has one. */
+function attioCode(text: string): string | null {
+	try {
+		const code = (JSON.parse(text) as { code?: unknown })?.code;
+		return typeof code === "string" && /^[a-z0-9_]{1,64}$/i.test(code) ? code : null;
+	} catch {
+		return null;
+	}
+}
+
 // ── Attio ──────────────────────────────────────────────────────────────────
 
 type AttioValues = Record<string, Array<Record<string, any>> | undefined>;
@@ -63,8 +86,11 @@ async function attio<T>(token: string, path: string, body: unknown, retries = 4)
 			continue;
 		}
 		const text = await res.text();
-		if (!res.ok) throw new Error(`Attio POST ${path} -> ${res.status}: ${text.slice(0, 200)}`);
-		return JSON.parse(text) as T;
+		if (!res.ok) {
+			const code = attioCode(text);
+			throw new Error(`Attio POST ${path} -> ${res.status}${code ? ` (${code})` : ""}`);
+		}
+		return parseJson<T>(text, `Attio POST ${path}`);
 	}
 }
 
@@ -84,11 +110,38 @@ async function queryAll<T>(token: string, path: string, filter?: unknown): Promi
 	}
 }
 
-/** Records by id, `$in` batches, a few in flight at a time. */
-async function recordsById(token: string, object: string, ids: string[]): Promise<Map<string, AttioRecord>> {
+export interface PersonFields {
+	title: string | null;
+	companyId: string | null;
+}
+export interface CompanyFields {
+	sizeBand: SizeBand;
+	countryCode: string | null;
+}
+
+/** Only what aggregation needs survives the fetch, so ~8k full Attio records never sit on the heap. */
+export const projectPerson = (v: AttioValues | undefined): PersonFields => {
+	const cid = v?.company?.[0]?.target_record_id;
+	return { title: textValue(v, "job_title"), companyId: typeof cid === "string" && cid ? cid : null };
+};
+export const projectCompany = (v: AttioValues | undefined): CompanyFields => {
+	const country = v?.primary_location?.[0]?.country_code;
+	return {
+		sizeBand: sizeBandOf(v?.employee_range?.[0]?.option?.title),
+		countryCode: typeof country === "string" && country ? country : null,
+	};
+};
+
+/** Records by id, `$in` batches, a few in flight at a time, projected as each batch lands. */
+export async function recordsById<P>(
+	token: string,
+	object: "people" | "companies",
+	ids: string[],
+	project: (values: AttioValues | undefined) => P,
+): Promise<Map<string, P>> {
 	const batches: string[][] = [];
 	for (let i = 0; i < ids.length; i += IN_BATCH) batches.push(ids.slice(i, i + IN_BATCH));
-	const out = new Map<string, AttioRecord>();
+	const out = new Map<string, P>();
 	let next = 0;
 	const worker = async () => {
 		while (next < batches.length) {
@@ -97,7 +150,7 @@ async function recordsById(token: string, object: string, ids: string[]): Promis
 				limit: IN_BATCH,
 				filter: { record_id: { $in: batch } },
 			});
-			for (const r of rows) if (r.id?.record_id) out.set(r.id.record_id, r);
+			for (const r of rows) if (r.id?.record_id) out.set(r.id.record_id, project(r.values));
 		}
 	};
 	await Promise.all(Array.from({ length: Math.min(4, batches.length) }, worker));
@@ -136,19 +189,18 @@ async function loadMembers(token: string): Promise<{ activeMembers: number; memb
 	const ids = [...new Set(entries.map((e) => e.parent_record_id).filter((id): id is string => !!id))];
 	if (ids.length === 0) throw new Error("Attio elc_members: no Active entries (option renamed?)");
 
-	const people = await recordsById(token, "people", ids);
-	const companyOf = (pid: string) => people.get(pid)?.values?.company?.[0]?.target_record_id as string | undefined;
-	const companyIds = [...new Set(ids.map(companyOf).filter((id): id is string => !!id))];
-	const companies = await recordsById(token, "companies", companyIds);
+	const people = await recordsById(token, "people", ids, projectPerson);
+	const companyIds = [...new Set([...people.values()].map((p) => p.companyId).filter((id): id is string => !!id))];
+	const companies = await recordsById(token, "companies", companyIds, projectCompany);
 
 	const members = ids.map((pid): MemberRow => {
-		const cid = companyOf(pid) ?? null;
-		const co = cid ? companies.get(cid)?.values : undefined;
-		const country = co?.primary_location?.[0]?.country_code;
+		const person = people.get(pid);
+		const cid = person?.companyId ?? null;
+		const co = cid ? companies.get(cid) : undefined;
 		return {
-			title: textValue(people.get(pid)?.values, "job_title"),
-			sizeBand: sizeBandOf(co?.employee_range?.[0]?.option?.title),
-			employerCountry: typeof country === "string" && country ? country : null,
+			title: person?.title ?? null,
+			sizeBand: co?.sizeBand ?? "unknown",
+			employerCountry: co?.countryCode ?? null,
 			companyId: cid,
 		};
 	});
@@ -196,9 +248,9 @@ function lumaClient(key: string) {
 					await sleep(Math.min(2 ** attempt * 1000, 30_000));
 					continue;
 				}
-				const body = await res.text();
-				if (!res.ok) throw new Error(`Luma GET ${path} -> ${res.status}: ${body.slice(0, 200)}`);
-				page = JSON.parse(body);
+				// The path only: the query string carries event ids.
+				if (!res.ok) throw new Error(`Luma GET ${path} -> ${res.status}`);
+				page = parseJson(await res.text(), `Luma GET ${path}`);
 			}
 			if (!Array.isArray(page.entries)) throw new Error(`Luma GET ${path}: no entries array`);
 			out.push(...page.entries);

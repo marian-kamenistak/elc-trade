@@ -34,19 +34,54 @@ export async function verifySnapshot(snapshot: StoredSnapshot): Promise<boolean>
 	}
 }
 
-export async function writeSnapshot(bucket: R2Bucket, body: SnapshotBody): Promise<StoredSnapshot> {
-	const prev = await readLatest(bucket, body.method_id);
+/**
+ * The writer's view of the previous link. Unlike readLatest, only a genuinely absent object means
+ * "no previous snapshot". A read error, an unparseable body or a failed hash throws, so a transient
+ * R2 fault or a tampered latest.json stops the run and alerts instead of silently restarting the
+ * chain and erasing the evidence.
+ */
+async function prevSha256(bucket: R2Bucket, method: MethodId): Promise<string | null> {
+	const obj = await bucket.get(latestKey(method));
+	if (!obj) return null;
+	const text = await obj.text();
+	let parsed: StoredSnapshot;
+	try {
+		parsed = JSON.parse(text) as StoredSnapshot;
+	} catch {
+		throw new Error(`snapshot chain: ${latestKey(method)} is not valid JSON`);
+	}
+	if (!parsed || typeof parsed !== "object" || parsed.method_id !== method || !(await verifySnapshot(parsed))) {
+		throw new Error(`snapshot chain: ${latestKey(method)} fails hash verification`);
+	}
+	return parsed.sha256;
+}
+
+interface Prepared {
+	stored: StoredSnapshot;
+	text: string;
+}
+
+async function prepareSnapshot(bucket: R2Bucket, body: SnapshotBody): Promise<Prepared> {
 	const unsigned: Omit<StoredSnapshot, "sha256"> = {
 		...body,
 		generated_at: new Date().toISOString(),
-		prev_sha256: prev?.sha256 ?? null,
+		prev_sha256: await prevSha256(bucket, body.method_id),
 	};
 	const stored: StoredSnapshot = { ...unsigned, sha256: await hashOf(unsigned) };
-	const text = JSON.stringify(stored);
+	return { stored, text: JSON.stringify(stored) };
+}
+
+async function putPrepared(bucket: R2Bucket, { stored, text }: Prepared): Promise<void> {
 	const opts = { httpMetadata: { contentType: "application/json" } };
-	await bucket.put(datedKey(body.method_id, body.as_of), text, opts);
-	await bucket.put(latestKey(body.method_id), text, opts);
-	return stored;
+	await bucket.put(datedKey(stored.method_id, stored.as_of), text, opts);
+	await bucket.put(latestKey(stored.method_id), text, opts);
+}
+
+/** Throws, writing nothing, when the previous latest.json cannot be read or does not verify. */
+export async function writeSnapshot(bucket: R2Bucket, body: SnapshotBody): Promise<StoredSnapshot> {
+	const prepared = await prepareSnapshot(bucket, body);
+	await putPrepared(bucket, prepared);
+	return prepared.stored;
 }
 
 export async function readLatest(bucket: R2Bucket, method: MethodId): Promise<StoredSnapshot | null> {
@@ -71,8 +106,9 @@ export interface NightlyEnv extends SourcesEnv {
 }
 
 /**
- * Fetch, aggregate all three, then write. Aggregation runs before the first write, so a loader or
- * suppression failure leaves yesterday's snapshots untouched rather than publishing a partial set.
+ * Fetch, aggregate all three, link all three to their chains, then write. Everything that can fail
+ * on bad input runs before the first put, so a loader, suppression or chain failure leaves
+ * yesterday's snapshots untouched rather than publishing a partial set.
  * Ruling R18: any failure is logged, nothing is written, and #m-warning-bot gets one message, so a
  * silently stale snapshot cannot go unnoticed. Never throws.
  */
@@ -88,14 +124,25 @@ export async function runNightlySnapshots(
 		await reportFailure(env, "fetch/aggregate", err);
 		return null;
 	}
+	const prepared: Prepared[] = [];
 	try {
-		const stored: StoredSnapshot[] = [];
-		for (const body of bodies) stored.push(await writeSnapshot(env.SNAPSHOTS, body));
-		return stored;
+		for (const body of bodies) prepared.push(await prepareSnapshot(env.SNAPSHOTS, body));
+	} catch (err) {
+		await reportFailure(env, "snapshot chain", err);
+		return null;
+	}
+	try {
+		for (const p of prepared) await putPrepared(env.SNAPSHOTS, p);
+		return prepared.map((p) => p.stored);
 	} catch (err) {
 		await reportFailure(env, "R2 write", err);
 		return null;
 	}
+}
+
+/** The Worker's `scheduled` handler. Awaited, never waitUntil (R23): the run must finish inside it. */
+export async function nightlyScheduled(_controller: ScheduledController, env: NightlyEnv, _ctx: ExecutionContext): Promise<void> {
+	await runNightlySnapshots(env);
 }
 
 async function reportFailure(env: NightlyEnv, stage: string, err: unknown): Promise<void> {
