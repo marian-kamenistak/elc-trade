@@ -43,6 +43,16 @@ describe("classifySeniority", () => {
 		["Engineering Leader", "lead_staff"], ["Team Leader", "lead_staff"], ["Teamleader", "lead_staff"], ["Teamlead", "lead_staff"],
 	])("leader: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
 
+	it.each([
+		["ZAŁOŻYCIEL", "c_level_founder"], ["WSPÓŁZAŁOŻYCIEL", "c_level_founder"], ["KIEROWNIK ZESPOŁU", "manager"],
+		["Partner at Acme", "c_level_founder"], ["Partner @ Acme", "c_level_founder"], ["Partner of Acme", "c_level_founder"],
+		["Partner, Acme", "c_level_founder"], ["Partner - Acme", "c_level_founder"], ["Owner of Acme", "c_level_founder"],
+		["Owner at Acme", "c_level_founder"], ["Owner - Acme", "c_level_founder"],
+		["Senior Partner at Acme", "c_level_founder"], ["Managing Partner, Acme", "c_level_founder"],
+		["Senior Partner Success Manager", "manager"], ["Product Owner", "other"], ["HR Business Partner", "other"],
+		["Partner Manager", "manager"],
+	])("round 2: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
+
 	it("returns null for empty", () => {
 		expect(classifySeniority("")).toBeNull();
 		expect(classifySeniority("  ")).toBeNull();
