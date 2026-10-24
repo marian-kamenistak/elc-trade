@@ -95,8 +95,8 @@ describe("memberCensus", () => {
 		const b = memberCensus(fixture());
 		expect(b.preview["seniority.manager"]).toMatchObject({ value: 16, n: 16, denominator: 50, coverage_pct: 72 });
 		expect(b.preview["seniority.c_level_founder"].value).toBe(10);
-		// 32 CZ + 8 SK: SK is under K and merges into "other" (hidden), which would make CZ = total - 0 recoverable
-		// from nothing else only if shown, so the secondary rule hides CZ too. Conservative, by design.
+		// 32 CZ + 8 SK: SK is under K and merges into "other", which is hidden. One hidden cell beside a
+		// published total is recoverable, so the secondary rule hides CZ too. Conservative, by design.
 		expect(b.preview["employer_country.CZ"]).toBeUndefined();
 		expect(b.preview["employer_country.SK"]).toBeUndefined();
 		expect(b.preview["employer_country.other"]).toBeUndefined();
