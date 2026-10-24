@@ -145,7 +145,9 @@ export async function paidDataHandler(
 	const title = PAID_TITLE[id] ?? id;
 	const source = "https://www.engineeringleaders.io/statistics/";
 	const amountUsd = opts.amountUsd ?? 0.5;
-	const snapshot = env?.SNAPSHOTS && method ? await readLatest(env.SNAPSHOTS, method) : null;
+	// A paid answer uses the snapshot the gate checked before charging; only previews read R2.
+	const snapshot =
+		opts.outcome?.kind === "paid" ? opts.outcome.snapshot : env?.SNAPSHOTS && method ? await readLatest(env.SNAPSHOTS, method) : null;
 
 	if (!snapshot) {
 		return {

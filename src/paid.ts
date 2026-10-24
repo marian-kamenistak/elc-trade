@@ -26,7 +26,8 @@
  *         data: { httpStatus, challenges: Challenge[], problem? })
  *     - respondReceipt → { ...result, _meta: { "org.paymentauth/receipt": Receipt & { challengeId } } }
  *   Credential = { challenge: Challenge; payload; source?: string (payer DID,
- *     did:pkh:eip155:<chainId>:<address>; tempo's client always sets it) }
+ *     did:pkh:eip155:<chainId>:<address>; tempo's client always sets it, but it is CLAIMED:
+ *     in pull mode tempo/server/Charge.js verifies only Transaction.deserialize(payload.signature).from) }
  *   Receipt = { method; reference (tx hash for tempo); status: "success"; timestamp; externalId? }
  *   Client: import { McpClient } from "mppx/mcp/client"; import { tempo } from "mppx/client";
  *     McpClient.wrap(sdkClient, { methods: [tempo({ account })] }) — callTool then pays any
@@ -42,7 +43,9 @@
  */
 
 import { Mppx, tempo, Transport } from "mppx/server";
-import { readLatest } from "./data/snapshot-store";
+import { getAddress } from "viem";
+import { Transaction } from "viem/tempo";
+import { readLatest, type StoredSnapshot } from "./data/snapshot-store";
 import type { MethodId } from "./data/types";
 
 // mppx's Mcp.credentialMetaKey / receiptMetaKey / paymentRequiredMetaKey, as literals so this file
@@ -53,7 +56,12 @@ export const PAYMENT_REQUIRED_META = "org.paymentauth/payment-required";
 
 export type PaidOutcome =
 	| { kind: "preview"; reason: "disabled" | "no_snapshot" | "payment_required" | "rate_limited"; challenge?: unknown }
-	| { kind: "paid"; payer: string; receiptId: string; receipt?: Record<string, unknown> };
+	/**
+	 * `snapshot` is the exact snapshot the gate checked before charging. The handler answers from it
+	 * and never reads R2 again, so a paying buyer cannot get "not computed yet" or a newer snapshot.
+	 * `payer` is the verified transaction sender, never the caller's claimed DID.
+	 */
+	| { kind: "paid"; payer: string; receiptId: string; receipt?: Record<string, unknown>; snapshot: StoredSnapshot };
 
 /** Secrets and the rate limiter are not all in the generated Env, so the gate names what it reads. */
 export interface PaidEnv {
@@ -67,6 +75,26 @@ export interface PaidEnv {
 
 type Extra = { _meta?: Record<string, unknown>; sessionId?: unknown };
 
+/**
+ * The payer as proven by the payment itself. In pull mode mppx checks the signed transaction's
+ * sender and never compares it with `credential.source`, so `source` is caller-asserted: a buyer
+ * could pay from wallet A and claim a victim's DID. The license is therefore bound to the sender
+ * recovered from the signed transaction, with the same viem/tempo deserializer mppx verifies with.
+ * A `source` that disagrees is ignored, not rejected: the payment already settled, and refusing
+ * the data would punish the payer while the license is attributed correctly either way.
+ */
+export function verifiedPayer(extra: Extra): string | null {
+	const payload = (extra._meta?.[CREDENTIAL_META] as { payload?: { type?: unknown; signature?: unknown } } | undefined)?.payload;
+	if (payload?.type !== "transaction" || typeof payload.signature !== "string") return null;
+	try {
+		const tx = Transaction.deserialize(payload.signature as `0x76${string}`) as { from?: string; chainId?: number };
+		return tx.from ? `did:pkh:eip155:${tx.chainId}:${getAddress(tx.from)}` : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Claimed identity, used only as the rate-limit key before anything is verified (deferred to G1). */
 function payerOf(extra: Extra): string | undefined {
 	const source = (extra._meta?.[CREDENTIAL_META] as { source?: unknown } | undefined)?.source;
 	return typeof source === "string" && source ? source : undefined;
@@ -128,7 +156,15 @@ export async function gatePaid(env: PaidEnv, ctx: { amountUsd: number; methodId:
 		const tool = r.withReceipt({ content: [] }) as { _meta?: Record<string, unknown> };
 		const receipt = (tool._meta?.[RECEIPT_META] ?? {}) as Record<string, unknown>;
 		const receiptId = String(receipt.reference ?? receipt.challengeId ?? "");
-		return { kind: "paid", payer: payerOf(extra) ?? `tx:${receiptId}`, receiptId, receipt };
+		// Pull-only charges always carry a signed transaction, so a missing sender is a defect here,
+		// not a buyer error. The money has moved, so the buyer still gets the answer, licensed to the
+		// receipt rather than to any claimed identity.
+		let payer = verifiedPayer(extra);
+		if (!payer) {
+			console.error(`[elc-trade] paid ${ctx.methodId} but no verifiable sender; licensing to receipt ${receiptId}`);
+			payer = `tx:${receiptId}`;
+		}
+		return { kind: "paid", payer, receiptId, receipt, snapshot };
 	} catch (err) {
 		console.error(`[elc-trade] paid charge failed: ${String(err).slice(0, 200)}`);
 		return { kind: "preview", reason: "payment_required" };

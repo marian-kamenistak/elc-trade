@@ -44,13 +44,16 @@ import { writeSnapshot } from "../src/data/snapshot-store";
 import { sha256Hex } from "../src/trust/jcs";
 import type { Figure, MethodId, SnapshotBody } from "../src/data/types";
 import { verifyData } from "../src/trust/sign";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { Transaction } from "viem/tempo";
 
 const PAID_IDS = ["get_leader_composition", "get_meetup_benchmarks"] as const;
 const today = new Date().toISOString().slice(0, 10);
 
+const objectsOf = new WeakMap<object, Map<string, string>>();
 function memoryBucket() {
 	const objects = new Map<string, string>();
-	return {
+	const bucket = {
 		async get(key: string) {
 			const text = objects.get(key);
 			return text === undefined ? null : { text: async () => text };
@@ -59,7 +62,9 @@ function memoryBucket() {
 			objects.set(key, value);
 			return {};
 		},
-	} as unknown as R2Bucket;
+	};
+	objectsOf.set(bucket, objects);
+	return bucket as unknown as R2Bucket;
 }
 
 const fig = (value: number, n: number, denominator: number, method_id: MethodId): Figure => ({ value, n, denominator, coverage_pct: 60, as_of: today, method_id });
@@ -130,8 +135,23 @@ async function setup(opts: { route?: string; preview?: string; snapshots?: boole
 	return { env, pub, limit };
 }
 
-const credential = (payer: string) => ({ _meta: { "org.paymentauth/credential": { challenge: { id: "ch1" }, payload: { type: "transaction", signature: "0x" }, source: payer } } });
-const PAYER = "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111";
+// The real contract: a pull credential carries a signed Tempo transaction, and its `source` is only
+// what the caller claims. mppx verifies the transaction's sender, never `source`.
+const walletA = privateKeyToAccount(generatePrivateKey());
+const walletB = privateKeyToAccount(generatePrivateKey());
+const signedTx = (account: typeof walletA) =>
+	account.signTransaction(
+		{ chainId: 42431, calls: [{ to: "0x20c0000000000000000000000000000000000000", data: "0x" }], nonce: 0, gas: 100000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n, type: "tempo" } as never,
+		{ serializer: Transaction.serialize as never },
+	);
+const TX_A = await signedTx(walletA);
+const TX_B = await signedTx(walletB);
+const DID_A = `did:pkh:eip155:42431:${walletA.address}`;
+/** Someone else's identity, claimed in `source` by the payer of TX_A. */
+const VICTIM = "did:pkh:eip155:42431:0x1111111111111111111111111111111111111111";
+const credential = (tx: string, source?: string) => ({
+	_meta: { "org.paymentauth/credential": { challenge: { id: "ch1" }, payload: { type: "transaction", signature: tx }, ...(source ? { source } : {}) } },
+});
 
 /** The MCP door: dispatch with a pay hook bound to this request's `extra`, exactly as index.ts wires it. */
 async function callMcp(env: Awaited<ReturnType<typeof setup>>["env"], id: string, extra: unknown = {}) {
@@ -176,7 +196,7 @@ describe("wire keys", () => {
 describe("gatePaid order", () => {
 	it("with PAID_ROUTE_ENABLED '0' never charges, and the preview states the price", async () => {
 		const { env } = await setup({ route: "0" });
-		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "leader_composition", request: credential(PAYER) });
+		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "leader_composition", request: credential(TX_A, VICTIM) });
 		expect(outcome).toEqual({ kind: "preview", reason: "disabled" });
 		expect(h.invoked).not.toHaveBeenCalled();
 		expect(h.configured).not.toHaveBeenCalled();
@@ -188,18 +208,19 @@ describe("gatePaid order", () => {
 
 	it("with no snapshot never charges and says not computed yet (Review Focus 3)", async () => {
 		const { env } = await setup({ snapshots: false });
-		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "meetup_benchmarks", request: credential(PAYER) });
+		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "meetup_benchmarks", request: credential(TX_A, VICTIM) });
 		expect(outcome).toEqual({ kind: "preview", reason: "no_snapshot" });
-		const { result } = await callMcp(env, "get_meetup_benchmarks", credential(PAYER));
+		const { result } = await callMcp(env, "get_meetup_benchmarks", credential(TX_A, VICTIM));
 		expect(result.verdict).toBe("Not computed yet");
 		expect(h.invoked).not.toHaveBeenCalled();
 	});
 
 	it("rate-limits by payer identity before charging", async () => {
 		const { env, limit } = await setup({ rateOk: false });
-		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "leader_composition", request: credential(PAYER) });
+		const outcome = await gatePaid(env as never, { amountUsd: 0.5, methodId: "leader_composition", request: credential(TX_A, VICTIM) });
 		expect(outcome).toEqual({ kind: "preview", reason: "rate_limited" });
-		expect(limit).toHaveBeenCalledWith({ key: PAYER });
+		// Keyed on the claimed identity, the only one available before verification (deferred to G1).
+		expect(limit).toHaveBeenCalledWith({ key: VICTIM });
 		expect(h.invoked).not.toHaveBeenCalled();
 	});
 
@@ -222,12 +243,14 @@ describe("gatePaid order", () => {
 describe("after payment", () => {
 	it("returns the full grid with license_id inside the signed data", async () => {
 		const { env, pub } = await setup();
-		const { result, outcome } = await callMcp(env, "get_leader_composition", credential(PAYER));
-		expect(outcome).toMatchObject({ kind: "paid", payer: PAYER, receiptId: "0xtxhash" });
+		const { result, outcome } = await callMcp(env, "get_leader_composition", credential(TX_A, VICTIM));
+		// Attributed to the wallet that signed the payment, not to the DID it claimed.
+		expect(outcome).toMatchObject({ kind: "paid", payer: DID_A, receiptId: "0xtxhash" });
 		const full = result.data?.full as { tables: Record<string, unknown> };
 		expect(full.tables.seniority_x_employer_country).toBeDefined();
-		const expected = (await sha256Hex(`${PAYER}:leader_composition:${today}`)).slice(0, 16);
+		const expected = (await sha256Hex(`${DID_A}:leader_composition:${today}`)).slice(0, 16);
 		expect(result.data?.license_id).toBe(expected);
+		expect(result.data?.license_id).not.toBe((await sha256Hex(`${VICTIM}:leader_composition:${today}`)).slice(0, 16));
 		expect(await verifyData(pub, result.data!, result.signature!.jws)).toBe(true);
 		const tampered = { ...result.data!, license_id: "0000000000000000" };
 		expect(await verifyData(pub, tampered, result.signature!.jws)).toBe(false);
@@ -237,18 +260,33 @@ describe("after payment", () => {
 
 	it("returns the per-event table for meetup benchmarks", async () => {
 		const { env } = await setup();
-		const { result } = await callMcp(env, "get_meetup_benchmarks", credential(PAYER));
+		const { result } = await callMcp(env, "get_meetup_benchmarks", credential(TX_A, VICTIM));
 		expect((result.data?.full as { events: unknown[] }).events).toHaveLength(1);
 		expect(result.data?.license_id).toMatch(/^[0-9a-f]{16}$/);
 	});
 
-	it("gives the same payer and as_of the same license_id, and another payer a different one", async () => {
+	it("derives license_id from the tx sender: stable for one sender whatever it claims, different for another", async () => {
 		const { env } = await setup();
-		const a = await callMcp(env, "get_leader_composition", credential(PAYER));
-		const b = await callMcp(env, "get_leader_composition", credential(PAYER));
-		const c = await callMcp(env, "get_leader_composition", credential(PAYER.replace(/1/g, "2")));
+		const a = await callMcp(env, "get_leader_composition", credential(TX_A, VICTIM));
+		const b = await callMcp(env, "get_leader_composition", credential(TX_A));
+		const c = await callMcp(env, "get_leader_composition", credential(TX_B, VICTIM));
 		expect(a.result.data?.license_id).toBe(b.result.data?.license_id);
 		expect(c.result.data?.license_id).not.toBe(a.result.data?.license_id);
+		expect(c.outcome).toMatchObject({ payer: `did:pkh:eip155:42431:${walletB.address}` });
+	});
+
+	it("answers from the snapshot the gate checked, even if R2 is empty after the charge", async () => {
+		const { env } = await setup();
+		const objects = objectsOf.get(env.SNAPSHOTS)!;
+		const gated = JSON.parse(objects.get("snapshots/leader_composition/latest.json")!) as { sha256: string };
+		// The charge succeeds, then the bucket goes away (a transient miss, or a cron rewrite in between).
+		h.invoked.mockImplementationOnce(() => objects.clear());
+		const { result, outcome } = await callMcp(env, "get_leader_composition", credential(TX_A, VICTIM));
+		expect(outcome?.kind).toBe("paid");
+		expect(objects.size).toBe(0);
+		expect(result.verdict).not.toBe("Not computed yet");
+		expect(result.data?.full).toBeDefined();
+		expect(result.data?.snapshot_sha256).toBe(gated.sha256);
 	});
 });
 
@@ -256,7 +294,7 @@ describe("DATA_PRODUCTS_PREVIEW cannot unlock production", () => {
 	it("with DATA_PRODUCTS_PREVIEW '1' but PAID_ROUTE_ENABLED '0' both ids still return their withheld notice", async () => {
 		const { env } = await setup({ route: "0", preview: "1" });
 		for (const id of PAID_IDS) {
-			const { result } = await callMcp(env, id, credential(PAYER));
+			const { result } = await callMcp(env, id, credential(TX_A, VICTIM));
 			expect(result.verdict).toBe("Not available yet");
 			expect(result.data?.withheld).toBe(true);
 			expect(result.report).toContain("$0.5");
