@@ -391,7 +391,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "cite_benchmark",
 		title: "Cite an ELC benchmark with a verifiable reference",
 		description:
-			"Answers 'where did that number come from?' Returns an ELC figure from the Data Points registry with its citation id, source and the date it was last verified, so an agent can put the figure in its own output and stand behind the provenance. An unknown id returns the three nearest ids instead of a guess.",
+			"Answers 'where did that number come from?' Returns an ELC figure from the Data Points registry with its citation id, source and the date it was last verified, so an agent can quote the figure and show where it came from. An unknown id returns the three nearest ids instead of a guess.",
 		tags: ["data", "benchmarks", "citation", "provenance"],
 		examples: [
 			"Give me a citable source for the ELC member count (elc_community.members_live).",
@@ -404,7 +404,7 @@ export const SERVICES: ServiceDefinition[] = [
 		sourcePath: "/statistics/",
 		inputSchema: {
 			id: z.string().max(200).optional().describe("Registry citation id, '<stream>.<key>', e.g. 'elc_community.members_live'."),
-			query: z.string().max(200).optional().describe("Free words to search the registry when you do not know the id, e.g. 'meetup attendance'."),
+			query: z.string().max(200).optional().describe("Plain words to search the registry when you do not know the id, e.g. 'meetup attendance'."),
 		},
 	},
 
