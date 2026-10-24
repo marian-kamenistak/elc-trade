@@ -117,12 +117,13 @@ function twoD(rows: Row[], a: [string, string | null, string[] | undefined], b: 
 				const ok = isMarginalPublishable(pub, raws, { [dim]: v }) && marginalSafe(group);
 				return { value: v, n: ok ? group.length : null };
 			});
-		return {
-			dimensions,
-			table_withheld: false,
-			cells: publicCells(pub),
-			marginals: { [dimA]: marginal(dimA, valsA), [dimB]: marginal(dimB, valsB) },
-		};
+		const mA = marginal(dimA, valsA);
+		const mB = marginal(dimB, valsB);
+		// A nulled marginal (dominated company) is a hidden value that titled minus the other marginals
+		// recovers, and the table's secondary choice would differ from the census's. Withhold, so every
+		// body takes the same 1-D suppression decision.
+		if ([...mA, ...mB].some((m) => m.n === null)) throw new Error("unsafe marginal: withhold");
+		return { dimensions, table_withheld: false, cells: publicCells(pub), marginals: { [dimA]: mA, [dimB]: mB } };
 	} catch {
 		return {
 			dimensions,
@@ -225,6 +226,19 @@ export function meetupBenchmarks(src: SourceData): SnapshotBody {
 		as_of: src.asOf,
 		method_url: methodUrl(method),
 		preview,
-		full: { events: events.map((e) => ({ ...e, checkedIn: e.checkInReliable ? e.checkedIn : null })) },
+		full: {
+			// Named fields only: an extra loader field (host email, say) can never reach the snapshot.
+			events: events.map((e) => ({
+				date: e.date,
+				city: e.city,
+				capacity: e.capacity,
+				approvalRequired: e.approvalRequired,
+				applied: e.applied,
+				approved: e.approved,
+				waitlist: e.waitlist,
+				checkedIn: e.checkInReliable ? e.checkedIn : null,
+				checkInReliable: e.checkInReliable,
+			})),
+		},
 	};
 }

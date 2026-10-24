@@ -170,7 +170,37 @@ describe("leaderComposition", () => {
 	});
 });
 
+describe("shared suppression decision", () => {
+	it("withholds a table whose marginal is dominated, and agrees with the census on the hidden set", () => {
+		// One company holds 14 of the 20 PL members; everything else is spread thin.
+		const members: MemberRow[] = [];
+		const add = (n: number, title: string, country: string, company: (i: number) => string) => {
+			for (let i = 0; i < n; i++) members.push({ title, sizeBand: "51-250", employerCountry: country, companyId: company(members.length) });
+		};
+		add(14, "CTO", "PL", () => "bigco");
+		add(6, "Engineering Manager", "PL", (i) => `p${i}`);
+		add(40, "CTO", "CZ", (i) => `z${i}`);
+		add(30, "Engineering Manager", "CZ", (i) => `y${i}`);
+		add(20, "Software Engineer", "SK", (i) => `x${i}`);
+		const src: SourceData = { asOf: AS_OF, activeMembers: members.length, members, conference: [], events: [] };
+
+		const census = memberCensus(src).full as any;
+		const t = (leaderComposition(src, { sizeBands: false }).full as any).tables.seniority_x_employer_country;
+		expect(t.table_withheld).toBe(true);
+		const hidden = (m: { value: string; n: number | null }[]) => m.filter((x) => x.n === null).map((x) => x.value).sort();
+		expect(hidden(t.marginals.seniority)).toEqual(hidden(census.seniority));
+		expect(hidden(t.marginals.employer_country)).toEqual(hidden(census.employer_country));
+		// titled minus the published marginals must not isolate exactly one hidden value
+		for (const m of [t.marginals.seniority, t.marginals.employer_country]) expect(hidden(m)).not.toHaveLength(1);
+	});
+});
+
 describe("meetupBenchmarks", () => {
+	it("serialises no field beyond the nine EventRow ones", () => {
+		const src = { ...fixture(), events: [{ ...event(), hostEmail: "x@example.com" } as EventRow] };
+		expect(JSON.stringify(meetupBenchmarks(src))).not.toContain("hostEmail");
+	});
+
 	it("counts only reliable check-ins in median_checkin_rate", () => {
 		const b = meetupBenchmarks(fixture());
 		// rates 0.75 and 0.5 -> median 0.625; the unreliable 0/200 event is excluded
