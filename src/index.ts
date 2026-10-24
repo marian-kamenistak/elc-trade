@@ -37,6 +37,7 @@ import { permissiveShape } from "./core/permissive";
 // This repo keeps its own `permissiveShape` in core/, written first and tied to its service
 // registry; only the transport normaliser is taken from the shared module.
 import { normalizeMcpRequest } from "./mcp-tolerant";
+import { runNightlySnapshots } from "./data/snapshot-store";
 import {
 	geoFromRequest,
 	instrumentMcpUsage,
@@ -309,5 +310,11 @@ export default {
 			`Not found.\nMCP:  ${ORIGIN}/mcp/trade\nA2A:  ${ORIGIN}${A2A_PATH}\nCard: ${ORIGIN}/${AGENT_CARD_PATH}\n`,
 			{ status: 404, headers: { "content-type": "text/plain; charset=utf-8" } },
 		);
+	},
+
+	// Nightly Attio + Luma snapshot (cron "15 3 * * *"). runNightlySnapshots never throws: on any
+	// failure it writes nothing and alerts #m-warning-bot.
+	async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+		ctx.waitUntil(runNightlySnapshots(env));
 	},
 };

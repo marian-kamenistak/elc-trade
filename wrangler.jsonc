@@ -64,6 +64,9 @@
 			"id": "f459fd36614740fcbe313953349d7776",
 		},
 	],
+	// Nightly member/meetup snapshots (src/data/). 03:15 UTC, after member-sync's overnight runs.
+	"triggers": { "crons": ["15 3 * * *"] },
+	"r2_buckets": [{ "binding": "SNAPSHOTS", "bucket_name": "elc-trade-snapshots" }],
 	"vars": {
 		// Channel IDs are vars, never secrets, and always IDs — a rename silently breaks a
 		// name-based reference. MCP_USAGE_SLACK_CHANNEL is the existing #web-mcp-usage-bot;
@@ -82,6 +85,10 @@
 		"PAID_ROUTE_ENABLED": "0",
 		// CAIP-2. eip155:84532 = Base Sepolia (testnet), eip155:8453 = Base mainnet.
 		"X402_NETWORK": "eip155:84532",
+		// #m-warning-bot (C0BMYMBHD32): the nightly snapshot job posts here when it fails and writes nothing.
+		"WARNING_SLACK_CHANNEL": "C0BMYMBHD32",
+		// G2: the seniority x size-band table ships off until Marian clears it. "1" turns it on.
+		"LEADER_SIZE_BANDS": "0",
 	},
 	"observability": {
 		"enabled": true,

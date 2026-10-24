@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "predeploy": "bash '/Users/mariankamenistak/ai/_platform/secret-sync/sync-secrets.sh'",
     "deploy": "npm run card:check && wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
