@@ -78,12 +78,6 @@
 			"display": "3,375 members in September 2026",
 			"verified": "2026-09-21"
 		},
-		"elc_community.members_projected_2027": {
-			"label": "Projected members, 2027",
-			"value": 4000,
-			"display": "4,000 (projected)",
-			"verified": "2026-08-03"
-		},
 		"elc_community.newsletter_open_rate": {
 			"label": "Newsletter open rate",
 			"value": 54,

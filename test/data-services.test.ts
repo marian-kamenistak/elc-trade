@@ -207,6 +207,13 @@ describe("cite_benchmark", () => {
 		expect(again.data?.nearest_ids).toEqual(nearest);
 	});
 
+	it("treats the investor projection as unknown", async () => {
+		const r = await dispatch("cite_benchmark", { id: "elc_community.members_projected_2027" });
+		expect(r.data?.found).toBe(false);
+		expect(r.data).not.toHaveProperty("value");
+		expect(JSON.stringify((await dispatch("cite_benchmark", { query: "projected members 2027" })).data)).not.toContain("members_projected");
+	});
+
 	it("treats a registry row outside the allowlist as unknown, in lookup, nearest and search", async () => {
 		const id = "partnerships.ataccama_members";
 		const r = await dispatch("cite_benchmark", { id });
@@ -255,7 +262,10 @@ describe("the vendored registry slice", () => {
 	});
 
 	it("excludes the rows ruled out of citation", () => {
-		for (const id of ["elc_community.meetup_registrations_median", "elc_community.youtube_channel"]) expect(ids).not.toContain(id);
+		for (const id of ["elc_community.meetup_registrations_median", "elc_community.youtube_channel", "elc_community.members_projected_2027"]) {
+			expect(ids).not.toContain(id);
+			expect(rows).not.toHaveProperty(id);
+		}
 		expect(ids.some((i) => i.startsWith("partnerships."))).toBe(false);
 	});
 });
