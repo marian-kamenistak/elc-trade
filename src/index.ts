@@ -33,6 +33,7 @@ import { A2A_PATH, ElcTradeExecutor, ORIGIN, buildAgentCard } from "./a2a";
 import { dispatch, liveServicesFor } from "./core/dispatch";
 import type { DispatchContext } from "./core/dispatch";
 import { gatePaid, withPayment, type PaidEnv, type PaidOutcome } from "./paid";
+import { handleDataRequest, type DataHttpEnv } from "./data-http";
 import { LIVE_SERVICES } from "./core/services";
 import { permissiveShape } from "./core/permissive";
 // This repo keeps its own `permissiveShape` in core/, written first and tied to its service
@@ -299,6 +300,11 @@ export default {
 				},
 			});
 		}
+
+		// ── Monetization Gateway door (src/data-http.ts) ─────────────────────────
+		// Before the MCP handler, on the raw pathname: a trailing slash must reach the door and 404
+		// there, not be stripped into a second URL the gateway rule does not cover.
+		if (url.pathname.startsWith("/mcp/trade/data/")) return handleDataRequest(request, env as unknown as DataHttpEnv);
 
 		// ── MCP ────────────────────────────────────────────────────────────────
 		if (path === "/mcp/trade") {

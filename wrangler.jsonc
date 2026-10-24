@@ -87,6 +87,10 @@
 		// exists and the route has been validated end to end on testnet. Also gates the local
 		// DATA_PRODUCTS_PREVIEW override (dispatch.ts withheldFor), so it stays "0" here.
 		"PAID_ROUTE_ENABLED": "0",
+		// Second paid rail: Cloudflare Monetization Gateway door at /mcp/trade/data/* (src/data-http.ts).
+		// Closed beta, US-only on 2026-10-24. "0" = the door 404s. Flip only after the dashboard rules
+		// exist and G1 has cleared (MONETIZATION-GATEWAY.md); withheld still applies on top.
+		"PAYMENT_GATEWAY_ENABLED": "0",
 		// MPP rail for the paid products. "testnet" = Tempo Moderato (chain 42431, pathUSD); src/paid.ts
 		// refuses any other value in v1. MPP_RECIPIENT is a public testnet address, never a key;
 		// MPP_SECRET_KEY (HMAC for challenge ids) is a secret via .op-secrets.

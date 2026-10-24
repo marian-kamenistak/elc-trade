@@ -91,6 +91,16 @@ export function paidMethodOf(id: string): MethodId | undefined {
 /** v1 takes payment only on the MCP door: mppx has an MCP SDK transport, A2A has no payment concept (08). */
 export const PAY_VIA = "https://www.engineeringleaders.io/mcp/trade";
 
+/**
+ * The Monetization Gateway door (src/data-http.ts): one canonical URL per product, which is also the
+ * JWT `aud` and the dashboard rule's URL. www, no trailing slash, no query: exactly one string each.
+ */
+export const DATA_SLUG = { "leader-composition": "leader_composition", "meetup-benchmarks": "meetup_benchmarks" } as const;
+export const DATA_URL = {
+	leader_composition: "https://www.engineeringleaders.io/mcp/trade/data/leader-composition",
+	meetup_benchmarks: "https://www.engineeringleaders.io/mcp/trade/data/meetup-benchmarks",
+} as const;
+
 const PAID_TITLE: Record<string, string> = {
 	get_leader_composition: "ELC leader composition",
 	get_meetup_benchmarks: "ELC meetup benchmarks",
@@ -102,6 +112,9 @@ const PREVIEW_NOTE: Record<Exclude<PaidOutcome, { kind: "paid" }>["reason"], str
 	payment_required: "The full answer needs a payment over MPP; the challenge is in this result's `_meta`. An MPP-aware MCP client pays and retries automatically. Nothing has been charged yet.",
 	rate_limited: "Too many paid calls from this payer in the last minute. Nothing has been charged; try again shortly.",
 };
+
+/** The HTTP door's preview is only ever an unpaid or unverified request; the 402 body carries the reason. */
+const GATEWAY_NOTE = "This request carried no valid payment, so this is the free preview. Pay with x402 through the Cloudflare Monetization Gateway, which charges at the edge on this URL. Nothing has been charged.";
 
 /** Composition preview: titled count plus top-line seniority shares from the already-suppressed 1-D marginal. */
 function compositionPreview(s: StoredSnapshot): Record<string, Figure> {
@@ -135,11 +148,14 @@ function fullOf(id: string, s: StoredSnapshot): unknown {
  * Answers a paid id from its snapshot. `outcome` is what src/paid.ts decided on the MCP door;
  * absent means a door with no payment (A2A), which gets the preview and where to pay.
  * license_id goes inside `data`, so dispatch's signature covers it.
+ *
+ * `snapshot`, when passed (null included), is used instead of reading R2: the HTTP door reads once
+ * and answers "not computed yet" or the full answer from that same object.
  */
 export async function paidDataHandler(
 	id: string,
-	env: CensusEnv | undefined,
-	opts: { transport: "a2a" | "mcp"; outcome?: PaidOutcome; amountUsd?: number },
+	env: (CensusEnv & { PAYMENT_GATEWAY_ENABLED?: string }) | undefined,
+	opts: { transport: "a2a" | "mcp" | "http"; outcome?: PaidOutcome; amountUsd?: number; snapshot?: StoredSnapshot | null },
 ): Promise<ServiceResult> {
 	const method = paidMethodOf(id);
 	const title = PAID_TITLE[id] ?? id;
@@ -147,7 +163,13 @@ export async function paidDataHandler(
 	const amountUsd = opts.amountUsd ?? 0.5;
 	// A paid answer uses the snapshot the gate checked before charging; only previews read R2.
 	const snapshot =
-		opts.outcome?.kind === "paid" ? opts.outcome.snapshot : env?.SNAPSHOTS && method ? await readLatest(env.SNAPSHOTS, method) : null;
+		opts.outcome?.kind === "paid"
+			? opts.outcome.snapshot
+			: opts.snapshot !== undefined
+				? opts.snapshot
+				: env?.SNAPSHOTS && method
+					? await readLatest(env.SNAPSHOTS, method)
+					: null;
 
 	if (!snapshot) {
 		return {
@@ -197,7 +219,14 @@ export async function paidDataHandler(
 		};
 	}
 
-	const note = opts.outcome ? PREVIEW_NOTE[opts.outcome.reason] : `Pay for the full answer at ${PAY_VIA} (MCP). This door takes no payment. Nothing has been charged.`;
+	const note =
+		opts.transport === "http"
+			? GATEWAY_NOTE
+			: opts.outcome
+				? PREVIEW_NOTE[opts.outcome.reason]
+				: `Pay for the full answer at ${PAY_VIA} (MCP). This door takes no payment. Nothing has been charged.`;
+	// Gateway mode only: the MCP preview also names the HTTPS URL an x402 client can buy from.
+	const buy_url = opts.transport === "mcp" && env?.PAYMENT_GATEWAY_ENABLED === "1" && method && method in DATA_URL ? DATA_URL[method as keyof typeof DATA_URL] : undefined;
 	return {
 		report: [
 			`# ${title}, as of ${snapshot.as_of} (free preview)`,
@@ -206,7 +235,8 @@ export async function paidDataHandler(
 			"",
 			...lines,
 			"",
-			`The full answer is $${amountUsd.toFixed(2)} per call over MPP. ${note}`,
+			`The full answer is $${amountUsd.toFixed(2)} per call over ${opts.transport === "http" ? "x402 (Cloudflare Monetization Gateway)" : "MPP"}. ${note}`,
+			...(buy_url ? [`Or buy it over HTTPS with x402: GET ${buy_url}`] : []),
 			`Method: ${snapshot.method_url}`,
 		].join("\n"),
 		source,
@@ -215,6 +245,7 @@ export async function paidDataHandler(
 			...common,
 			price: { model: "metered", amount_usd: amountUsd, per: "call" },
 			...(opts.transport === "a2a" ? { pay_via: PAY_VIA } : {}),
+			...(buy_url ? { buy_url } : {}),
 		},
 	};
 }
