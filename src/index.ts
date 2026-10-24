@@ -30,8 +30,9 @@ import {
 	UnauthenticatedUser,
 } from "@a2a-js/sdk/server";
 import { A2A_PATH, ElcTradeExecutor, ORIGIN, buildAgentCard } from "./a2a";
-import { dispatch } from "./core/dispatch";
+import { dispatch, liveServicesFor } from "./core/dispatch";
 import type { DispatchContext } from "./core/dispatch";
+import { gatePaid, withPayment, type PaidEnv, type PaidOutcome } from "./paid";
 import { LIVE_SERVICES } from "./core/services";
 import { permissiveShape } from "./core/permissive";
 // This repo keeps its own `permissiveShape` in core/, written first and tied to its service
@@ -91,7 +92,11 @@ function menuText(): string {
 	].join("\n");
 }
 
-function asToolResult(r: Awaited<ReturnType<typeof dispatch>>) {
+function asToolResult(r: Awaited<ReturnType<typeof dispatch>>): {
+	content: { type: "text"; text: string }[];
+	structuredContent: Record<string, unknown>;
+	_meta?: Record<string, unknown>;
+} {
 	return {
 		content: [{ type: "text" as const, text: r.report }],
 		structuredContent: {
@@ -138,7 +143,8 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 
 		// One tool per live service, straight off the registry. A service that is withheld
 		// is never registered, so it cannot be called by an agent that read the tool list.
-		for (const service of LIVE_SERVICES) {
+		// liveServicesFor is LIVE_SERVICES unless the local testnet override is on (dispatch.ts).
+		for (const service of liveServicesFor(this.env as unknown as DispatchContext["env"])) {
 			this.server.registerTool(
 				service.id,
 				{
@@ -151,14 +157,18 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 					// ever to be told what the tool actually accepts.
 					inputSchema: permissiveShape(service.inputSchema),
 				},
-				async (args: Record<string, unknown>) =>
-						asToolResult(
-							await dispatch(service.id, args, {
-								env: this.env as unknown as DispatchContext["env"],
-								transport: "mcp",
-								waitUntil: (p) => this.ctx.waitUntil(p),
-							}),
-						),
+				// `extra` carries the MPP credential in its _meta; the gate reads it there, and the receipt or
+				// challenge goes back on the tool result's _meta (src/paid.ts).
+				async (args: Record<string, unknown>, extra: unknown) => {
+					let outcome: PaidOutcome | undefined;
+					const result = await dispatch(service.id, args, {
+						env: this.env as unknown as DispatchContext["env"],
+						transport: "mcp",
+						waitUntil: (p) => this.ctx.waitUntil(p),
+						pay: async (c) => (outcome = await gatePaid(this.env as unknown as PaidEnv, { ...c, request: extra })),
+					});
+					return withPayment(asToolResult(result), outcome);
+				},
 			);
 		}
 	}

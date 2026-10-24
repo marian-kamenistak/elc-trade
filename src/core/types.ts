@@ -28,11 +28,11 @@ export type PriceModel =
 	/** Free. Most of the surface — free tools are the discovery channel, not a loss. */
 	| { model: "free" }
 	/**
-	 * Metered per call over x402/MPP. `amountEur` is the list price ex VAT.
-	 * Only ever applied to `kind: "data"` — see strategy/08-a2a-agent-trading.md for why
+	 * Metered per call over MPP. USD, because both payment rails price in USD; the card floor is
+	 * $0.50. Only ever applied to `kind: "data"` — see strategy/08-a2a-agent-trading.md for why
 	 * the €50+ bands have no working rail in the EU.
 	 */
-	| { model: "metered"; amountEur: number }
+	| { model: "metered"; amountUsd: number }
 	/**
 	 * Quote-to-invoice. The agent assembles a decision-ready cart; a human signs.
 	 * `fromEur` is the entry price, for the card and the catalog page.

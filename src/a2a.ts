@@ -81,7 +81,7 @@ function pricingParams(): Record<string, unknown> {
 				s.price.model === "free"
 					? { model: "free" }
 					: s.price.model === "metered"
-						? { model: "metered", amount: s.price.amountEur, per: "call" }
+						? { model: "metered", amount: s.price.amountUsd, currency: "USD", per: "call" }
 						: { model: "quote", from: s.price.fromEur, fulfilment: s.fulfilment },
 			]),
 		),

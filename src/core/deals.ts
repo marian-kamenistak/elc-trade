@@ -96,7 +96,7 @@ export async function notifyDeal(
 		service.price.model === "quote"
 			? `from €${service.price.fromEur}`
 			: service.price.model === "metered"
-				? `€${service.price.amountEur}/call`
+				? `$${service.price.amountUsd}/call`
 				: "free";
 
 	const text = [

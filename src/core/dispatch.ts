@@ -22,8 +22,10 @@ import { renderQuote, splitQuote } from "./quote-render";
 import { getStarted } from "./get-started";
 import { extractSpeakerEvidence, extractTopicEvidence, type ExtractEnv } from "./extract";
 import { type DealsEnv, isDealworthy, notifyDeal } from "./deals";
-import { censusHandler, citeBenchmarkHandler, type CensusEnv } from "./data-services";
+import { censusHandler, citeBenchmarkHandler, paidDataHandler, paidMethodOf, type CensusEnv } from "./data-services";
 import { signData } from "../trust/sign";
+import type { PaidOutcome } from "../paid";
+import type { MethodId } from "../data/types";
 
 /** SIGNING_PRIVATE_JWK is a Worker secret, so it is absent from the generated Env types. */
 export interface SigningEnv {
@@ -238,11 +240,38 @@ export class UnknownServiceError extends Error {
  * than silently degrading.
  */
 export interface DispatchContext {
-	env: BridgeBindings & DealsEnv & ExtractEnv & CensusEnv & SigningEnv;
-	/** Which transport asked. Only used for the Slack line, never for the answer. */
+	env: BridgeBindings & DealsEnv & ExtractEnv & CensusEnv & SigningEnv & PreviewEnv;
+	/** Which transport asked. Used for the Slack line and to tell a paid preview where to pay. */
 	transport: "a2a" | "mcp";
 	/** Keeps the Slack post alive past the response. Without it the post may be cancelled. */
 	waitUntil?: (p: Promise<unknown>) => void;
+	/**
+	 * The MCP door's payment gate (src/paid.ts gatePaid, bound to the request). Called only for a
+	 * paid id, only after its arguments validated, so a malformed call is never charged. Absent on
+	 * A2A, which has no payment concept.
+	 */
+	pay?: (c: { amountUsd: number; methodId: MethodId }) => Promise<PaidOutcome>;
+}
+
+/** Local-only switches. Both are vars, so the generated Env may or may not carry them. */
+export interface PreviewEnv {
+	PAID_ROUTE_ENABLED?: string;
+	DATA_PRODUCTS_PREVIEW?: string;
+}
+
+/**
+ * The local override for testnet work: DATA_PRODUCTS_PREVIEW="1" lifts `withheld` for the paid
+ * ids ONLY, and ONLY when PAID_ROUTE_ENABLED is also "1". Production ships the route at "0", so
+ * the override alone can never unlock a withheld product there.
+ */
+export function withheldFor(service: ServiceDefinition, env?: PreviewEnv): string | undefined {
+	if (paidMethodOf(service.id) && env?.PAID_ROUTE_ENABLED === "1" && env.DATA_PRODUCTS_PREVIEW === "1") return undefined;
+	return service.withheld;
+}
+
+/** What the MCP door registers as tools for this environment. Equal to LIVE_SERVICES in production. */
+export function liveServicesFor(env?: PreviewEnv): ServiceDefinition[] {
+	return SERVICES.filter((s) => !withheldFor(s, env));
 }
 
 export async function dispatch(
@@ -269,8 +298,9 @@ export async function dispatch(
 	// block an argument the owner legitimately accepts. Required fields and enums still get
 	// caught, so the caller sees the nine valid reach ids before a network call is made rather
 	// than a raw Zod dump afterwards.
+	const withheld = withheldFor(service, ctx?.env);
 	let unknownKeys: string[] = [];
-	if (!service.withheld) {
+	if (!withheld) {
 		// Before validation, so the enum judges the id the caller meant. Same place as the
 		// buy_reach rendering below: this door already special-cases its one priced service.
 		if (id === "buy_reach") args = normalizeOneoffIds(args);
@@ -295,17 +325,17 @@ export async function dispatch(
 		}
 	}
 
-	if (service.withheld || NEEDS_EVIDENCE.has(id)) {
+	if (withheld || NEEDS_EVIDENCE.has(id)) {
 		// Deliberately a normal result, not an error: the caller asked a legitimate question
 		// and the honest answer is "not yet, and here is exactly why".
 		return {
 			report: [
 				`# ${service.title} — not available yet`,
 				"",
-				service.withheld ??
+				withheld ??
 					"Reading this submission needs the evidence extractor, which is not reachable right now. Rather than fall back to pattern matching — which is why this service was withheld in the first place — it declines to answer. Try again shortly.",
 				"",
-				`When it opens it will be ${service.price.model === "free" ? "free" : service.price.model === "metered" ? "metered per call" : `quoted from €${service.price.fromEur}`}.`,
+				`When it opens it will be ${service.price.model === "free" ? "free" : service.price.model === "metered" ? `metered at $${service.price.amountUsd.toFixed(2)} per call` : `quoted from €${service.price.fromEur}`}.`,
 				"",
 				"Nothing has been charged and nothing has been queued.",
 			].join("\n"),
@@ -366,6 +396,17 @@ export async function dispatch(
 		};
 		announce(service, args, bridged, ctx);
 		return bridged;
+	}
+
+	// Paid ids: the gate decides (MCP only), the handler answers preview or full from the snapshot.
+	const method = paidMethodOf(id);
+	if (method) {
+		const amountUsd = service.price.model === "metered" ? service.price.amountUsd : 0;
+		const outcome = ctx?.pay ? await ctx.pay({ amountUsd, methodId: method }) : undefined;
+		const result = await paidDataHandler(id, ctx?.env, { transport: ctx?.transport ?? "mcp", outcome, amountUsd });
+		const paid = await signDataResult(service, { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER }, ctx?.env);
+		announce(service, args, paid, ctx);
+		return paid;
 	}
 
 	const handler = HANDLERS[id];
@@ -437,7 +478,7 @@ function announce(
 
 /** Guards against advertising something we cannot answer. Asserted in the test suite. */
 export function unimplementedLiveServices(): string[] {
-	return SERVICES.filter((s) => !s.withheld && !s.bridge && !HANDLERS[s.id]).map((s) => s.id);
+	return SERVICES.filter((s) => !s.withheld && !s.bridge && !HANDLERS[s.id] && !paidMethodOf(s.id)).map((s) => s.id);
 }
 
 /** Exported for the regression test that asserts no advertised argument is silently dropped. */

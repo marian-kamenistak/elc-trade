@@ -7,8 +7,10 @@
  */
 
 import dataPointsFile from "../data/data-points.json";
-import { readLatest } from "../data/snapshot-store";
-import type { Figure } from "../data/types";
+import { readLatest, type StoredSnapshot } from "../data/snapshot-store";
+import type { Figure, MethodId } from "../data/types";
+import { sha256Hex } from "../trust/jcs";
+import type { PaidOutcome } from "../paid";
 import type { ServiceResult } from "./types";
 
 /** Why 72: the cron runs nightly, so three missed runs is the point where "latest" stops meaning latest. */
@@ -69,6 +71,148 @@ export async function censusHandler(_args: Record<string, unknown>, env?: Census
 			stale,
 			as_of: snapshot.as_of,
 			method_url: snapshot.method_url,
+		},
+	};
+}
+
+// ── Paid products: get_leader_composition, get_meetup_benchmarks ─────────────
+
+/** Service id → snapshot method. The only ids src/paid.ts may charge for. */
+export const PAID_METHODS: Readonly<Record<string, MethodId>> = {
+	get_leader_composition: "leader_composition",
+	get_meetup_benchmarks: "meetup_benchmarks",
+};
+
+/** Own-key lookup, so an id like "constructor" can never read as a paid product. */
+export function paidMethodOf(id: string): MethodId | undefined {
+	return Object.prototype.hasOwnProperty.call(PAID_METHODS, id) ? PAID_METHODS[id] : undefined;
+}
+
+/** v1 takes payment only on the MCP door: mppx has an MCP SDK transport, A2A has no payment concept (08). */
+export const PAY_VIA = "https://www.engineeringleaders.io/mcp/trade";
+
+const PAID_TITLE: Record<string, string> = {
+	get_leader_composition: "ELC leader composition",
+	get_meetup_benchmarks: "ELC meetup benchmarks",
+};
+
+const PREVIEW_NOTE: Record<Exclude<PaidOutcome, { kind: "paid" }>["reason"], string> = {
+	disabled: "The paid route is switched off, so this is the free preview only. Nothing has been charged.",
+	no_snapshot: "Nothing has been charged.",
+	payment_required: "The full answer needs a payment over MPP; the challenge is in this result's `_meta`. An MPP-aware MCP client pays and retries automatically. Nothing has been charged yet.",
+	rate_limited: "Too many paid calls from this payer in the last minute. Nothing has been charged; try again shortly.",
+};
+
+/** Composition preview: titled count plus top-line seniority shares from the already-suppressed 1-D marginal. */
+function compositionPreview(s: StoredSnapshot): Record<string, Figure> {
+	const out: Record<string, Figure> = {};
+	const titled = s.preview.titled;
+	if (!titled) return out;
+	out.titled = titled;
+	const full = s.full as { tables?: Record<string, { marginals?: Record<string, { value: string; n: number | null }[] | null> }> };
+	const marginal = full?.tables?.seniority_x_employer_country?.marginals?.seniority ?? [];
+	for (const c of marginal) {
+		// A suppressed cell (n null) stays out entirely; a share of a hidden count is the hidden count.
+		if (c.n === null || titled.n <= 0) continue;
+		out[`seniority_share.${c.value}`] = {
+			value: Math.round((c.n / titled.n) * 1000) / 10,
+			n: c.n,
+			denominator: titled.n,
+			coverage_pct: titled.coverage_pct,
+			as_of: s.as_of,
+			method_id: s.method_id,
+		};
+	}
+	return out;
+}
+
+/** The full answer: the suppressed tables, or the per-event rows, exactly as the snapshot stored them. */
+function fullOf(id: string, s: StoredSnapshot): unknown {
+	return id === "get_meetup_benchmarks" ? { events: (s.full as { events?: unknown[] })?.events ?? [] } : s.full;
+}
+
+/**
+ * Answers a paid id from its snapshot. `outcome` is what src/paid.ts decided on the MCP door;
+ * absent means a door with no payment (A2A), which gets the preview and where to pay.
+ * license_id goes inside `data`, so dispatch's signature covers it.
+ */
+export async function paidDataHandler(
+	id: string,
+	env: CensusEnv | undefined,
+	opts: { transport: "a2a" | "mcp"; outcome?: PaidOutcome; amountUsd?: number },
+): Promise<ServiceResult> {
+	const method = paidMethodOf(id);
+	const title = PAID_TITLE[id] ?? id;
+	const source = "https://www.engineeringleaders.io/statistics/";
+	const amountUsd = opts.amountUsd ?? 0.5;
+	const snapshot = env?.SNAPSHOTS && method ? await readLatest(env.SNAPSHOTS, method) : null;
+
+	if (!snapshot) {
+		return {
+			report: [
+				`# ${title}: not computed yet`,
+				"",
+				"The nightly snapshot this answer is read from does not exist yet (or failed its integrity check), so there are no figures to return. Nothing has been charged. Try again after the next nightly run.",
+			].join("\n"),
+			source,
+			verdict: "Not computed yet",
+		};
+	}
+
+	const age = Date.now() - Date.parse(snapshot.as_of);
+	const stale = !(age <= STALE_AFTER_HOURS * HOUR_MS);
+	const figures = id === "get_leader_composition" ? compositionPreview(snapshot) : snapshot.preview;
+	const lines = Object.entries(figures).map(([key, f]) => `- ${key}: ${f.value} (n=${f.n} of ${f.denominator}, ${f.coverage_pct}% coverage)`);
+	const common = {
+		figures,
+		snapshot_id: `${snapshot.method_id}/${snapshot.as_of}`,
+		snapshot_sha256: snapshot.sha256,
+		stale,
+		as_of: snapshot.as_of,
+		method_url: snapshot.method_url,
+	};
+	const dated = stale
+		? `**Stale:** this snapshot is more than ${STALE_AFTER_HOURS} hours old. The figures are true as of ${snapshot.as_of}, not today.`
+		: `Snapshot dated ${snapshot.as_of}.`;
+
+	if (opts.outcome?.kind === "paid") {
+		const license_id = (await sha256Hex(`${opts.outcome.payer}:${snapshot.method_id}:${snapshot.as_of}`)).slice(0, 16);
+		return {
+			report: [
+				`# ${title}, as of ${snapshot.as_of} (full answer)`,
+				"",
+				dated,
+				"",
+				...lines,
+				"",
+				"The full table is in `data.full`. Cells under 10 are suppressed, and so is any cell one company dominates.",
+				`License ${license_id}, bound to the paying identity and this snapshot. Receipt ${opts.outcome.receiptId}.`,
+				`Method: ${snapshot.method_url}`,
+			].join("\n"),
+			source,
+			verdict: `${title} as of ${snapshot.as_of}${stale ? " (stale)" : ""}, paid`,
+			data: { ...common, full: fullOf(id, snapshot), license_id, receipt_id: opts.outcome.receiptId },
+		};
+	}
+
+	const note = opts.outcome ? PREVIEW_NOTE[opts.outcome.reason] : `Pay for the full answer at ${PAY_VIA} (MCP). This door takes no payment. Nothing has been charged.`;
+	return {
+		report: [
+			`# ${title}, as of ${snapshot.as_of} (free preview)`,
+			"",
+			dated,
+			"",
+			...lines,
+			"",
+			`The full answer is $${amountUsd.toFixed(2)} per call over MPP. ${note}`,
+			`Method: ${snapshot.method_url}`,
+		].join("\n"),
+		source,
+		verdict: `${title} as of ${snapshot.as_of}${stale ? " (stale)" : ""}, preview`,
+		data: {
+			...common,
+			price: { model: "metered", amount_usd: amountUsd, per: "call" },
+			...(opts.transport === "a2a" ? { pay_via: PAY_VIA } : {}),
 		},
 	};
 }

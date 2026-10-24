@@ -7,7 +7,8 @@
  *
  * Prices here are LIST prices, ex VAT, and every one traces to a source:
  *   - one-off reach: partnerships/offers/catalog.yaml `oneoffs` (verified 2026-09-04)
- *   - metered data:  proposed, UNSOURCED until Marian confirms — flagged inline
+ *   - metered data:  USD $0.50 per full answer, the card floor (plan 2026-10-23-agent-data-products,
+ *                    global constraints); not yet an ELC Data Points row — flagged inline
  * Nothing in this file may state a figure that is not in the ELC Data Points registry or
  * catalog.yaml. See CLAUDE.md.
  */
@@ -323,33 +324,48 @@ export const SERVICES: ServiceDefinition[] = [
 	},
 
 	// ─── Tier 3: needs data work ──────────────────────────────────────────────
+	// The two paid products (src/paid.ts). Same slot get_cee_leadership_market held: it became
+	// get_leader_composition once the nightly aggregation existed. Both answer a free preview
+	// everywhere and the full answer only over MCP, after an MPP payment.
 	{
-		id: "get_cee_leadership_market",
-		title: "Query the CEE engineering-leadership market",
+		id: "get_leader_composition",
+		title: "Get the ELC leader composition, signed",
 		description:
-			"Answers 'what does the engineering-leadership market in Central Europe actually look like?' Returns the seniority and title distribution across ELC's 3,300+ members in Prague, Brno, Bratislava and Kraków — first-party data from a community running since 2019, not a survey panel or a scrape.",
-		tags: ["data", "market", "benchmarks", "cee", "hiring"],
+			"Answers 'how senior are the engineering leaders in the ELC community, and where do they work?' Free preview: titled members, coverage and the top-line seniority shares. Paid full answer: the seniority by employer-country table (and the conference-speaker table), small cells suppressed, signed and licensed to the payer. No member is ever named.",
+		tags: ["data", "members", "composition", "signed", "paid"],
 		examples: [
-			"How many engineering directors are there in the Czech tech market?",
-			"What's the seniority split of engineering leaders in Central Europe?",
+			"What share of ELC members are directors or above, by employer country?",
+			"Give me the seniority mix of engineering leaders in the ELC community, with denominators.",
 		],
 		kind: "data",
-		// PROPOSED, UNSOURCED. The paid route. Must not go live until Marian sets the
-		// price and it exists as an ELC Data Points row.
-		price: { model: "metered", amountEur: 0.25 },
+		// Card floor (plan global constraints). Not yet an ELC Data Points row.
+		price: { model: "metered", amountUsd: 0.5 },
 		fulfilment: "immediate",
 		site: "elc",
-		sourcePath: "/toolkit/",
-		inputSchema: {
-			segment: z
-				.enum(["seniority", "titles", "cities", "all"])
-				.default("all")
-				.describe("Which cut of the member base to return."),
-		},
-		// Approved for build by Marian 2026-09-04. Stays withheld until the aggregation
-		// actually exists — approving the build is not the same as having the data.
+		sourcePath: "/statistics/",
+		inputSchema: {},
 		withheld:
-			"In build: the live Attio aggregation job is being written. Until it lands, the only figures available are one hand-computed snapshot in which 60% of member profiles carry no title, so every number is a floor rather than a share — not something to sell. The metered price is also still unset; €0.25 in this file is a placeholder, not a decision.",
+			"Gate G1 is open: selling member statistics needs its purpose stated in the privacy policy and a lawyer review (privacy-policy purpose + lawyer review). Until both are done this is not sold, and the paid route stays off.",
+	},
+	{
+		id: "get_meetup_benchmarks",
+		title: "Get ELC meetup benchmarks, signed",
+		description:
+			"Answers 'how many people apply to, get approved for and actually show up at an engineering-leadership meetup?' Free preview: the series medians, each with its count and coverage. Paid full answer: the per-event table behind them, signed and licensed to the payer.",
+		tags: ["data", "meetups", "benchmarks", "signed", "paid"],
+		examples: [
+			"What's the median attendance at an ELC meetup, and what share of approved guests check in?",
+			"Give me per-event applied, approved and checked-in counts for ELC meetups.",
+		],
+		kind: "data",
+		// Card floor (plan global constraints). Not yet an ELC Data Points row.
+		price: { model: "metered", amountUsd: 0.5 },
+		fulfilment: "immediate",
+		site: "elc",
+		sourcePath: "/statistics/",
+		inputSchema: {},
+		withheld:
+			"Gate G1 is open: selling member and event statistics needs its purpose stated in the privacy policy and a lawyer review (privacy-policy purpose + lawyer review). Until both are done this is not sold, and the paid route stays off.",
 	},
 	{
 		id: "get_member_census",

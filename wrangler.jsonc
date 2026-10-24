@@ -67,6 +67,9 @@
 	// Nightly member/meetup snapshots (src/data/). 03:15 UTC, after member-sync's overnight runs.
 	"triggers": { "crons": ["15 3 * * *"] },
 	"r2_buckets": [{ "binding": "SNAPSHOTS", "bucket_name": "elc-trade-snapshots" }],
+	// Paid data products (src/paid.ts): 10 gated calls per payer per minute. namespace_id is an
+	// account-unique integer we pick; no other Worker in the estate uses rate limiting (2026-10-24).
+	"ratelimits": [{ "name": "PAID_RATE", "namespace_id": "1701", "simple": { "limit": 10, "period": 60 } }],
 	"vars": {
 		// Channel IDs are vars, never secrets, and always IDs — a rename silently breaks a
 		// name-based reference. MCP_USAGE_SLACK_CHANNEL is the existing #web-mcp-usage-bot;
@@ -81,8 +84,14 @@
 		// LinkedIn connect pipeline. Nothing reaches LinkedIn until this is "1".
 		"LI_POST_ENABLED": "0",
 		// Paid-route switch. Ships off; flipped once the Stripe crypto deposit address
-		// exists and the route has been validated end to end on testnet.
+		// exists and the route has been validated end to end on testnet. Also gates the local
+		// DATA_PRODUCTS_PREVIEW override (dispatch.ts withheldFor), so it stays "0" here.
 		"PAID_ROUTE_ENABLED": "0",
+		// MPP rail for the paid products. "testnet" = Tempo Moderato (chain 42431, pathUSD); src/paid.ts
+		// refuses any other value in v1. MPP_RECIPIENT is a public testnet address, never a key;
+		// MPP_SECRET_KEY (HMAC for challenge ids) is a secret via .op-secrets.
+		"MPP_NETWORK": "testnet",
+		"MPP_RECIPIENT": "0xE89E9dE0914fC5ab648D2eDBf710415b782866d6",
 		// CAIP-2. eip155:84532 = Base Sepolia (testnet), eip155:8453 = Base mainnet.
 		"X402_NETWORK": "eip155:84532",
 		// #m-warning-bot (C0BMYMBHD32): the nightly snapshot job posts here when it fails and writes nothing.
