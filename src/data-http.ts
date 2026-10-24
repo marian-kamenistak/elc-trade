@@ -102,7 +102,6 @@ export async function handleDataRequest(request: Request, env: DataHttpEnv, deps
 
 	const result = await paidDataHandler(service.id, env, {
 		transport: "http",
-		amountUsd: service.price.model === "metered" ? service.price.amountUsd : 0.5,
 		outcome: { kind: "paid", payer: check.paymentId, receiptId: check.paymentId, snapshot },
 	});
 	return json(await signDataResult(service, result, env), 200, settle(PRICE_ATOMIC[method]));

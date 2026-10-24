@@ -201,8 +201,10 @@ describe("gatePaid order", () => {
 		expect(h.invoked).not.toHaveBeenCalled();
 		expect(h.configured).not.toHaveBeenCalled();
 		const r = await paidDataHandler("get_leader_composition", env as never, { transport: "mcp", outcome });
-		expect(r.report).toContain("$0.50");
-		expect(r.data?.price).toEqual({ model: "metered", amount_usd: 0.5, per: "call" });
+		// R36: no price figure in public text until a Data Points row exists.
+		expect(r.report).not.toMatch(/\$\d/);
+		expect(r.report).toContain("paid per call");
+		expect(r.data?.price).toEqual({ model: "metered", per: "call" });
 		expect(r.data?.full).toBeUndefined();
 	});
 
@@ -297,7 +299,8 @@ describe("DATA_PRODUCTS_PREVIEW cannot unlock production", () => {
 			const { result } = await callMcp(env, id, credential(TX_A, VICTIM));
 			expect(result.verdict).toBe("Not available yet");
 			expect(result.data?.withheld).toBe(true);
-			expect(result.report).toContain("$0.5");
+			expect(result.report).not.toContain("$0.5");
+			expect(result.report).toContain("metered per call");
 		}
 		expect(liveServicesFor(env).map((s) => s.id)).not.toContain("get_leader_composition");
 		expect(h.invoked).not.toHaveBeenCalled();

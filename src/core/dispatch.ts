@@ -335,7 +335,7 @@ export async function dispatch(
 				withheld ??
 					"Reading this submission needs the evidence extractor, which is not reachable right now. Rather than fall back to pattern matching — which is why this service was withheld in the first place — it declines to answer. Try again shortly.",
 				"",
-				`When it opens it will be ${service.price.model === "free" ? "free" : service.price.model === "metered" ? `metered at $${service.price.amountUsd.toFixed(2)} per call` : `quoted from €${service.price.fromEur}`}.`,
+				`When it opens it will be ${service.price.model === "free" ? "free" : service.price.model === "metered" ? "metered per call" : `quoted from €${service.price.fromEur}`}.`,
 				"",
 				"Nothing has been charged and nothing has been queued.",
 			].join("\n"),
@@ -403,7 +403,7 @@ export async function dispatch(
 	if (method) {
 		const amountUsd = service.price.model === "metered" ? service.price.amountUsd : 0;
 		const outcome = ctx?.pay ? await ctx.pay({ amountUsd, methodId: method }) : undefined;
-		const result = await paidDataHandler(id, ctx?.env, { transport: ctx?.transport ?? "mcp", outcome, amountUsd });
+		const result = await paidDataHandler(id, ctx?.env, { transport: ctx?.transport ?? "mcp", outcome });
 		const paid = await signDataResult(service, { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER }, ctx?.env);
 		announce(service, args, paid, ctx);
 		return paid;

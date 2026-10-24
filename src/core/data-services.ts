@@ -155,12 +155,11 @@ function fullOf(id: string, s: StoredSnapshot): unknown {
 export async function paidDataHandler(
 	id: string,
 	env: (CensusEnv & { PAYMENT_GATEWAY_ENABLED?: string }) | undefined,
-	opts: { transport: "a2a" | "mcp" | "http"; outcome?: PaidOutcome; amountUsd?: number; snapshot?: StoredSnapshot | null },
+	opts: { transport: "a2a" | "mcp" | "http"; outcome?: PaidOutcome; snapshot?: StoredSnapshot | null },
 ): Promise<ServiceResult> {
 	const method = paidMethodOf(id);
 	const title = PAID_TITLE[id] ?? id;
 	const source = "https://www.engineeringleaders.io/statistics/";
-	const amountUsd = opts.amountUsd ?? 0.5;
 	// A paid answer uses the snapshot the gate checked before charging; only previews read R2.
 	const snapshot =
 		opts.outcome?.kind === "paid"
@@ -235,7 +234,8 @@ export async function paidDataHandler(
 			"",
 			...lines,
 			"",
-			`The full answer is $${amountUsd.toFixed(2)} per call over ${opts.transport === "http" ? "x402 (Cloudflare Monetization Gateway)" : "MPP"}. ${note}`,
+			// R36: no price figure in public text until it is an ELC Data Points row; the payment challenge carries the amount.
+			`The full answer is paid per call over ${opts.transport === "http" ? "x402 (Cloudflare Monetization Gateway)" : "MPP"}; the payment challenge states the amount. ${note}`,
 			...(buy_url ? [`Or buy it over HTTPS with x402: GET ${buy_url}`] : []),
 			`Method: ${snapshot.method_url}`,
 		].join("\n"),
@@ -243,7 +243,7 @@ export async function paidDataHandler(
 		verdict: `${title} as of ${snapshot.as_of}${stale ? " (stale)" : ""}, preview`,
 		data: {
 			...common,
-			price: { model: "metered", amount_usd: amountUsd, per: "call" },
+			price: { model: "metered", per: "call" },
 			...(opts.transport === "a2a" ? { pay_via: PAY_VIA } : {}),
 			...(buy_url ? { buy_url } : {}),
 		},
