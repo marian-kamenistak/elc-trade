@@ -10,17 +10,17 @@ import type { Seniority } from "./types";
  */
 
 const RULES: Array<[Seniority, RegExp]> = [
-	["c_level_founder", /\b(ceo|cto|cfo|coo|cio|cpo|cmo|cso|cdo|cro|cxo|ciso|chief|founder|co-?founder|zakladatel\w*|zalozyciel\w*|partner|owner|(?<!vice[\s-])president|c-level)\b/],
+	["c_level_founder", /\b(ceo|cto|cfo|coo|cio|cpo|cmo|cso|cdo|cro|cxo|ciso|chief|founder|co-?founder|(spolu)?zakladatel\w*|(wspol)?zalozyciel\w*|(?<!vice[\s-])president|c-level|co-?owner|(managing|founding|senior)\s+partner)\b|^(partner|owner)\W*$|^owner\s*(&|,|and\b)/],
 	["vp", /\b(s?vp|avp|vice[\s-]*president)\b/],
 	["director_head", /\b(director|head|reditel\w*|riaditel\w*|dyrektor\w*)\b/],
-	["manager", /\b(manager|managing|vedouci|veduci|kierownik\w*)\b/],
-	["lead_staff", /\b(lead|staff|principal|distinguished|fellow)\b/],
+	["manager", /\b(manager|managing|manazer\w*|menedzer\w*|vedouci|veduci|kierownik\w*)\b/],
+	["lead_staff", /\b(lead|leader|teamlead|teamleader|staff|principal|distinguished|fellow)\b/],
 	["ic", /\b(engineer|developer|programmer|architect|analyst|designer|consultant|scientist|researcher|senior|junior|intern|qa|tester|sre|devops|swe)\b/],
 ];
 
 export function classifySeniority(title: string | null | undefined): Seniority | null {
 	if (typeof title !== "string") return null;
-	const t = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+	const t = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l").toLowerCase().trim();
 	if (!t) return null;
 	for (const [level, re] of RULES) if (re.test(t)) return level;
 	return "other";

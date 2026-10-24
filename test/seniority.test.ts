@@ -21,6 +21,28 @@ describe("classifySeniority", () => {
 		expect(classifySeniority("Vice President of Engineering")).toBe("vp");
 	});
 
+	it.each([
+		["Partner", "c_level_founder"], ["Owner", "c_level_founder"], ["Managing Partner", "c_level_founder"],
+		["Founding Partner", "c_level_founder"], ["Senior Partner", "c_level_founder"], ["Co-owner", "c_level_founder"],
+		["Coowner", "c_level_founder"], ["Owner & CEO", "c_level_founder"], ["Owner, Acme", "c_level_founder"],
+		["Owner and Founder", "c_level_founder"],
+		["Product Owner", "other"], ["Service Owner", "other"], ["Data Owner", "other"],
+		["HR Business Partner", "other"], ["Partner Manager", "manager"], ["Delivery Partner", "other"],
+		["Engineering Partner", "other"],
+	])("owner/partner: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
+
+	it.each([
+		["Projektový manažer", "manager"], ["Engineering manažerka", "manager"], ["menedżer IT", "manager"],
+	])("CS/SK/PL manager: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
+
+	it.each([
+		["spoluzakladatel", "c_level_founder"], ["współzałożyciel", "c_level_founder"],
+	])("CS/PL co-founder: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
+
+	it.each([
+		["Engineering Leader", "lead_staff"], ["Team Leader", "lead_staff"], ["Teamleader", "lead_staff"], ["Teamlead", "lead_staff"],
+	])("leader: %s", (t, s) => expect(classifySeniority(t)).toBe(s));
+
 	it("returns null for empty", () => {
 		expect(classifySeniority("")).toBeNull();
 		expect(classifySeniority("  ")).toBeNull();
