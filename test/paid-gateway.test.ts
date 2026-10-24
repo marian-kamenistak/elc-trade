@@ -260,6 +260,17 @@ describe("handleDataRequest", () => {
 		expect(limit).not.toHaveBeenCalled();
 	});
 
+	it("www on a non-default port → 308 to the canonical URL without the port, token never read", async () => {
+		const { env, limit } = await setup();
+		const r = req("https://www.engineeringleaders.io:8443/mcp/trade/data/leader-composition?x=1", await token());
+		const read = vi.spyOn(r.headers, "get");
+		const res = await call(env, r);
+		expect(res.status).toBe(308);
+		expect(res.headers.get("location")).toBe(`${AUD_LC}?x=1`);
+		expect(read).not.toHaveBeenCalled();
+		expect(limit).not.toHaveBeenCalled();
+	});
+
 	it("a trailing slash or an unknown slug → 404, so each product has exactly one URL", async () => {
 		const { env } = await setup();
 		for (const url of [`${AUD_LC}/`, "https://www.engineeringleaders.io/mcp/trade/data/constructor"]) {

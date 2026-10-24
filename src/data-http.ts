@@ -54,7 +54,7 @@ const settle = (atomic: bigint) => ({ "PAYMENT-SETTLEMENT": JSON.stringify({ amo
 export async function handleDataRequest(request: Request, env: DataHttpEnv, deps: { jwks: JWTVerifyGetKey } = { jwks: gatewayJwks() }): Promise<Response> {
 	if (env.PAYMENT_GATEWAY_ENABLED !== "1") return new Response("Not found.\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
 	const url = new URL(request.url);
-	if (url.hostname !== CANONICAL_HOST) {
+	if (url.hostname !== CANONICAL_HOST || url.port !== "") {
 		const to = new URL(`${url.pathname}${url.search}`, `https://${CANONICAL_HOST}`);
 		return new Response(null, { status: 308, headers: { location: to.href, "cache-control": "no-store" } });
 	}
