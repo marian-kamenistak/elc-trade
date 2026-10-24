@@ -89,6 +89,10 @@
 		"WARNING_SLACK_CHANNEL": "C0BMYMBHD32",
 		// G2: the seniority x size-band table ships off until Marian clears it. "1" turns it on.
 		"LEADER_SIZE_BANDS": "0",
+		// Answer signing (src/trust/sign.ts). The public key is safe in the repo; the private half is
+		// the SIGNING_PRIVATE_JWK secret. A new key means a new kid, never an in-place swap.
+		"SIGNING_KID": "elc-2026-10",
+		"SIGNING_PUBLIC_JWK": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"7EsQqQfoDZvHYy1DvKMaME5AGrG8Kpsaf1y1osfZcUg\"}",
 	},
 	"observability": {
 		"enabled": true,
