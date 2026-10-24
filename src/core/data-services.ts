@@ -333,7 +333,8 @@ export function citeBenchmarkHandler(args: { id?: string; query?: string }): Ser
 					`Citation id: ${c.id}`,
 				].join("\n"),
 				source: CITE_SOURCE,
-				verdict: `${c.display} (verified ${c.verified})`,
+				// The label carries the caveat (e.g. "registrations, never attendance"), so it travels with the number.
+				verdict: `${c.label}: ${c.display}, verified ${c.verified}`,
 				data: { found: true, ...c },
 			};
 		}

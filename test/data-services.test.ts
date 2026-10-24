@@ -214,6 +214,14 @@ describe("cite_benchmark", () => {
 		expect(r.data).not.toHaveProperty("source");
 	});
 
+	it("keeps the row label, and so its caveat, in the verdict", async () => {
+		const r = await dispatch("cite_benchmark", { id: "elc_community.meetup_attendance" });
+		expect(r.verdict).toContain("120+");
+		expect(r.verdict).toContain("never as attendance");
+		expect(r.verdict).toContain("2026-09-30");
+		expect(r.verdict).not.toMatch(/\u2014/);
+	});
+
 	it("lists the nearest 3 ids for an unknown id instead of guessing", async () => {
 		const r = await dispatch("cite_benchmark", { id: "elc_community.members_lve" });
 		expect(r.data?.found).toBe(false);
