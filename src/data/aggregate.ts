@@ -141,7 +141,7 @@ export function memberCensus(src: SourceData): SnapshotBody {
 	const countryRows = toRows(src.members, (m) => ({ employer_country: countryOf(m) }));
 	const titled = titledRows.length;
 	const titledCoverage = pct(titled, active);
-	const countryCoverage = pct(src.members.length, active);
+	const countryCoverage = pct(src.members.filter((m) => countryOf(m) !== "unknown").length, active);
 
 	const seniority = oneD(titledRows, "seniority", "other", SENIORITY_ORDER);
 	const country = oneD(countryRows, "employer_country", "other", COUNTRY_ORDER);

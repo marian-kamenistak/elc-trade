@@ -101,6 +101,17 @@ describe("memberCensus", () => {
 		expect(b.preview["employer_country.SK"]).toBeUndefined();
 		expect(b.preview["employer_country.other"]).toBeUndefined();
 	});
+
+	it("states employer-country coverage over members with a known country, not all members", () => {
+		const members: MemberRow[] = [
+			...Array.from({ length: 30 }, (_, i) => ({ title: "CTO", sizeBand: "1k+" as const, employerCountry: "CZ", companyId: `cz${i}` })),
+			...Array.from({ length: 20 }, (_, i) => ({ title: "CTO", sizeBand: "1k+" as const, employerCountry: "SK", companyId: `sk${i}` })),
+			...Array.from({ length: 10 }, (_, i) => ({ title: "CTO", sizeBand: "1k+" as const, employerCountry: i % 2 ? null : "  ", companyId: `u${i}` })),
+		];
+		const b = memberCensus({ asOf: AS_OF, activeMembers: 100, members, conference: [], events: [] });
+		expect(b.preview["employer_country.CZ"]).toMatchObject({ value: 30, denominator: 100, coverage_pct: 50 });
+		expect(b.preview["employer_country.SK"].coverage_pct).toBe(50);
+	});
 });
 
 describe("leaderComposition", () => {
