@@ -52,16 +52,16 @@ describe("suppressGrid", () => {
 		expect(out.map((c) => c.reason)).toEqual(["below_k", "below_k", undefined]);
 	});
 
-	it("runs to a fixed point: a secondary suppression in one group forces another in the next", () => {
-		// Grid: A(s1,b1) small; B(s1,b2); D(s2,b2). Groups by "b" run first, so a single pass would stop
-		// after hiding B; hiding B then exposes D through the b2 total.
+	it("cascades across groups in a dense 2-D grid until every group is safe", () => {
+		// A is below k. Hiding it forces C (same b), which forces D (same s as C) and B (same s as A).
 		const cells: RawCell[] = [
 			{ key: { s: "s1", b: "b1" }, n: 4, companyCounts: many(4, "a") },
 			{ key: { s: "s1", b: "b2" }, n: 20, companyCounts: many(20, "b") },
+			{ key: { s: "s2", b: "b1" }, n: 25, companyCounts: many(25, "c") },
 			{ key: { s: "s2", b: "b2" }, n: 30, companyCounts: many(30, "d") },
 		];
 		const out = suppressGrid(cells, [["b"], ["s"]]);
-		expect(out.map((c) => c.reason)).toEqual(["below_k", "secondary", "secondary"]);
+		expect(out.map((c) => c.reason)).toEqual(["below_k", "secondary", "secondary", "secondary"]);
 		expect(out.every((c) => c.n === null)).toBe(true);
 	});
 
@@ -200,6 +200,37 @@ describe("recovery attacks", () => {
 			expect(a.recoverable, `grid ${t}`).toEqual([]);
 			expect(a.smallSums, `grid ${t}`).toEqual([]);
 		}
+	});
+
+	it("fails closed on a sparse 2-D grid (reviewer minimal case: r0 holds only r0c4)", () => {
+		const raw: RawCell[] = [];
+		for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) if (r > 0 || c === 4) raw.push(cell({ r: `r${r}`, c: `c${c}` }, r === 0 ? 6 : 30));
+		expect(() => suppressGrid(raw, [["r"], ["c"]])).toThrow("suppressGrid requires a dense 2-D grid; pass n=0 cells for empty combinations");
+	});
+
+	it("throws on duplicate keys, in 2-D with the dense message and in 0/1-D with its own", () => {
+		const dup = [cell({ r: "a", c: "x" }, 20), cell({ r: "a", c: "x" }, 20), cell({ r: "b", c: "x" }, 20), cell({ r: "b", c: "y" }, 20)];
+		expect(() => suppressGrid(dup, [["r"], ["c"]])).toThrow("dense 2-D grid");
+		expect(() => suppressGrid(dup, [["r"]])).toThrow("unique cell keys");
+		expect(() => suppressGrid(dup, [])).toThrow("unique cell keys");
+	});
+
+	it("accepts a dense 2-D grid with n=0 cells for empty combinations", () => {
+		const raw = [cell({ r: "a", c: "x" }, 30), cell({ r: "a", c: "y" }, 0), cell({ r: "b", c: "x" }, 30), cell({ r: "b", c: "y" }, 30)];
+		const a = attack(raw, suppressGrid(raw, [["r"], ["c"]]), [["r"], ["c"]]);
+		expect(a.recoverable).toEqual([]);
+	});
+
+	it("throws on a group of two or more cells that cannot be cured", () => {
+		const raw = [cell({ s: "vp", b: "a" }, 3), cell({ s: "vp", b: "b" }, 4)];
+		expect(() => suppressGrid(raw, [["s"]])).toThrow(/^uncurable suppression pattern: /);
+	});
+
+	it("does not throw for a one-cell hidden group in 1-D; isMarginalPublishable gates it", () => {
+		const raw = [cell({ s: "vp" }, 4), cell({ s: "cto" }, 30)];
+		const out = suppressGrid(raw, [["s"]]);
+		expect(out[0].suppressed).toBe(true);
+		expect(isMarginalPublishable(out, raw, { s: "vp" })).toBe(false);
 	});
 
 	it("throws for more than two marginal groups", () => {

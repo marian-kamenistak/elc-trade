@@ -15,7 +15,9 @@
  * cell is chosen by n, then by canonical key (sorted, JSON), and groups are visited in key order, so
  * the same data gives the same pattern whatever the input order. A group with nothing left to hide
  * cannot be cured: callers must check `isMarginalPublishable` before publishing a marginal (the
- * aggregation step does). Pure: inputs are never mutated, output order equals input order.
+ * aggregation step does). Fail closed: with two groups the grid must be dense (every combination
+ * present exactly once, pass n=0 cells for empty ones), keys must be unique, and any group of two
+ * or more cells or any bridge that cannot be cured throws instead of returning a leaky pattern. Pure: inputs are never mutated, output order equals input order.
  *
  * PublishedCell.reason is internal audit only: "below_k" reveals n is at most 9 and "dominance"
  * reveals company concentration. Serialize only the output of `publicCells`, never PublishedCell.
@@ -55,29 +57,44 @@ export function suppressGrid(cells: RawCell[], marginalDims: string[][]): Publis
 	if (marginalDims.length > 2) throw new Error("suppressGrid supports at most 2 marginal groups; publish 2-D tables only");
 	const reasons: Array<Reason | undefined> = cells.map(primaryReason);
 	const ck = cells.map((c) => canonical(c.key));
+	const duplicate = new Set(ck).size !== ck.length;
+	if (duplicate && marginalDims.length !== 2) throw new Error("suppressGrid requires unique cell keys");
 	const byKey = cells.map((_, i) => i).sort((a, b) => (ck[a] < ck[b] ? -1 : ck[a] > ck[b] ? 1 : a - b));
 	const smaller = (a: number, b: number) => cells[a].n < cells[b].n || (cells[a].n === cells[b].n && ck[a] < ck[b]);
 	const smallest = (idx: number[]) => idx.reduce((a, b) => (smaller(b, a) ? b : a));
 
 	// Group membership never changes, so build the groups once, in canonical order.
 	const nodeOf: string[][] = marginalDims.map((dims, di) => cells.map((c) => `${di}:${JSON.stringify(dims.map((d) => c.key[d] ?? null))}`));
-	const groups: number[][] = nodeOf.flatMap((ids) => {
+	if (marginalDims.length === 2) {
+		// Fail closed: a sparse grid can hide a cell that no published cell can shield (no cycle to close).
+		const rows = new Set(nodeOf[0]).size;
+		const cols = new Set(nodeOf[1]).size;
+		const pairs = new Set(cells.map((_, i) => `${nodeOf[0][i]}|${nodeOf[1][i]}`)).size;
+		if (duplicate || pairs !== cells.length || cells.length !== rows * cols) {
+			throw new Error("suppressGrid requires a dense 2-D grid; pass n=0 cells for empty combinations");
+		}
+	}
+	const groups: Array<{ label: string; members: number[] }> = nodeOf.flatMap((ids) => {
 		const byId = new Map<string, number[]>();
 		for (const i of byKey) byId.set(ids[i], [...(byId.get(ids[i]) ?? []), i]);
-		return [...byId.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, m]) => m);
+		return [...byId.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([label, members]) => ({ label, members }));
 	});
 
 	const isHidden = (i: number) => reasons[i] !== undefined;
 
 	/** Group rule: hidden count exactly one, or hidden true sum under K_MIN. Returns true if it hid a cell. */
 	const cureGroups = (): boolean => {
-		for (const members of groups) {
+		for (const { label, members } of groups) {
 			const hidden = members.filter(isHidden);
 			if (hidden.length === 0) continue;
 			const sum = hidden.reduce((a, i) => a + cells[i].n, 0);
 			if (hidden.length !== 1 && sum >= K_MIN) continue;
 			const shown = members.filter((i) => !isHidden(i));
-			if (shown.length === 0) continue;
+			if (shown.length === 0) {
+				// A one-cell group is gated by isMarginalPublishable; a larger one has no cure left.
+				if (members.length === 1) continue;
+				throw new Error(`uncurable suppression pattern: ${label}`);
+			}
 			reasons[smallest(shown)] = "secondary";
 			return true;
 		}
@@ -112,7 +129,7 @@ export function suppressGrid(cells: RawCell[], marginalDims: string[][]): Publis
 			const closers = byKey.filter(
 				(i) => !isHidden(i) && ((sideA.has(nodeOf[0][i]) && sideB.has(nodeOf[1][i])) || (sideB.has(nodeOf[0][i]) && sideA.has(nodeOf[1][i]))),
 			);
-			if (closers.length === 0) continue;
+			if (closers.length === 0) throw new Error(`uncurable suppression pattern: ${ck[e]}`);
 			reasons[smallest(closers)] = "secondary";
 			return true;
 		}
