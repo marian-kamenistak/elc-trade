@@ -352,25 +352,41 @@ export const SERVICES: ServiceDefinition[] = [
 			"In build: the live Attio aggregation job is being written. Until it lands, the only figures available are one hand-computed snapshot in which 60% of member profiles carry no title, so every number is a floor rather than a share — not something to sell. The metered price is also still unset; €0.25 in this file is a placeholder, not a decision.",
 	},
 	{
-		id: "cite_benchmark",
-		title: "Cite an ELC benchmark with a verifiable reference",
+		id: "get_member_census",
+		title: "Get the ELC member census, signed",
 		description:
-			"Answers 'where did that number come from?' Returns an ELC engineering-leadership benchmark together with a citation id, the method behind it, and the date it was last verified — so an agent can put the figure in its own output and stand behind the provenance.",
-		tags: ["data", "benchmarks", "citation", "provenance"],
+			"Answers 'how many engineering leaders are in the ELC community, and how senior are they?' Returns the latest nightly member census as figures that each carry their count, denominator, coverage, date and method, plus a signature you can verify. Small cells are suppressed; no member is ever named.",
+		tags: ["data", "members", "census", "signed"],
 		examples: [
-			"What's the healthy manager-to-senior-IC ratio, and can I cite it?",
-			"Give me a citable source for CEE engineering leadership benchmarks.",
+			"How many active members does the Engineering Leaders Club have?",
+			"What share of ELC members are directors or above, and how sure are you?",
 		],
 		kind: "data",
 		price: { model: "free" },
 		fulfilment: "immediate",
 		site: "elc",
-		sourcePath: "/toolkit/",
+		sourcePath: "/statistics/",
+		inputSchema: {},
+	},
+	{
+		id: "cite_benchmark",
+		title: "Cite an ELC benchmark with a verifiable reference",
+		description:
+			"Answers 'where did that number come from?' Returns an ELC figure from the Data Points registry with its citation id, source and the date it was last verified, so an agent can put the figure in its own output and stand behind the provenance. An unknown id returns the three nearest ids instead of a guess.",
+		tags: ["data", "benchmarks", "citation", "provenance"],
+		examples: [
+			"Give me a citable source for the ELC member count (elc_community.members_live).",
+			"Which ELC figures exist about meetup attendance, and when were they verified?",
+		],
+		kind: "data",
+		price: { model: "free" },
+		fulfilment: "immediate",
+		site: "elc",
+		sourcePath: "/statistics/",
 		inputSchema: {
-			topic: z.string().describe("Which benchmark, e.g. 'leadership ratio', 'meetup attendance'."),
+			id: z.string().optional().describe("Registry citation id, '<stream>.<key>', e.g. 'elc_community.members_live'."),
+			query: z.string().optional().describe("Free words to search the registry when you do not know the id, e.g. 'meetup attendance'."),
 		},
-		withheld:
-			"Not live yet: the benchmark numbers are hardcoded TypeScript constants in elc-toolkit rather than read from the ELC Data Points registry at runtime. A citation is only worth issuing once it resolves to the registry row it claims.",
 	},
 
 	// ─── Tier 4: blocked on a decision ────────────────────────────────────────

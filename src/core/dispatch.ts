@@ -22,8 +22,16 @@ import { renderQuote, splitQuote } from "./quote-render";
 import { getStarted } from "./get-started";
 import { extractSpeakerEvidence, extractTopicEvidence, type ExtractEnv } from "./extract";
 import { type DealsEnv, isDealworthy, notifyDeal } from "./deals";
+import { censusHandler, citeBenchmarkHandler, type CensusEnv } from "./data-services";
+import { signData } from "../trust/sign";
 
-type Handler = (args: Record<string, unknown>) => ServiceResult | Promise<ServiceResult>;
+/** SIGNING_PRIVATE_JWK is a Worker secret, so it is absent from the generated Env types. */
+export interface SigningEnv {
+	SIGNING_PRIVATE_JWK?: string;
+	SIGNING_KID?: string;
+}
+
+type Handler = (args: Record<string, unknown>, env?: CensusEnv) => ServiceResult | Promise<ServiceResult>;
 
 /**
  * The sibling servers end their answers by naming their OWN next tool — `book_intro_call`,
@@ -140,6 +148,12 @@ const EVIDENCE_HANDLERS: Record<string, AsyncHandler> = {
 };
 
 const HANDLERS: Record<string, Handler> = {
+	get_member_census: (a, env) => censusHandler(a, env),
+	cite_benchmark: (a) =>
+		citeBenchmarkHandler({
+			id: a.id == null ? undefined : String(a.id),
+			query: a.query == null ? undefined : String(a.query),
+		}),
 	get_started: (a) =>
 		getStarted(
 			{ context: a.context == null ? undefined : String(a.context) },
@@ -180,7 +194,7 @@ export class InvalidArgumentsError extends Error {
 				...cause.issues.map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`),
 				"",
 				"Accepted arguments:",
-				...fields,
+				...(fields.length ? fields : ["  (none)"]),
 			].join("\n"),
 		);
 		this.name = "InvalidArgumentsError";
@@ -224,7 +238,7 @@ export class UnknownServiceError extends Error {
  * than silently degrading.
  */
 export interface DispatchContext {
-	env: BridgeBindings & DealsEnv & ExtractEnv;
+	env: BridgeBindings & DealsEnv & ExtractEnv & CensusEnv & SigningEnv;
 	/** Which transport asked. Only used for the Slack line, never for the answer. */
 	transport: "a2a" | "mcp";
 	/** Keeps the Slack post alive past the response. Without it the post may be cancelled. */
@@ -363,10 +377,34 @@ export async function dispatch(
 		);
 	}
 
-	const result = await handler(args);
-	const local: ServiceResult = { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER };
+	const result = await handler(args, ctx?.env);
+	const local: ServiceResult = await signDataResult(service, { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER }, ctx?.env);
 	announce(service, args, local, ctx);
 	return local;
+}
+
+/**
+ * Every `kind: "data"` answer that carries data is signed here, once, so a new data service gets
+ * it without knowing about keys. R26: with no key (tests, local dev) or a key that fails, the
+ * answer still goes out, unsigned and saying so in `data.signature_status`. Never throws, never
+ * fabricates a signature.
+ *
+ * `data` is passed through a JSON round trip first because canonicalize() throws on `undefined`,
+ * and the caller verifies the bytes that survive the wire, which have no undefined either. The
+ * object returned is the object that was signed.
+ */
+export async function signDataResult(service: ServiceDefinition, result: ServiceResult, env?: SigningEnv): Promise<ServiceResult> {
+	if (service.kind !== "data" || !result.data) return result;
+	const data = JSON.parse(JSON.stringify(result.data)) as Record<string, unknown>;
+	if (env?.SIGNING_PRIVATE_JWK && env.SIGNING_KID) {
+		try {
+			const signature = await signData({ SIGNING_PRIVATE_JWK: env.SIGNING_PRIVATE_JWK, SIGNING_KID: env.SIGNING_KID }, data);
+			return { ...result, data, signature };
+		} catch (err) {
+			console.error(`[elc-trade] signing ${service.id} failed: ${String(err).slice(0, 200)}`);
+		}
+	}
+	return { ...result, data: { ...data, signature_status: "unavailable" } };
 }
 
 /**

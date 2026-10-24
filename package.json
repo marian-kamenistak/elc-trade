@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predeploy": "bash '/Users/mariankamenistak/ai/_platform/secret-sync/sync-secrets.sh'",
-    "deploy": "npm run card:check && npm run jwks -- --check && wrangler deploy",
+    "deploy": "npm run card:check && npm run jwks -- --check && npm run data-points -- --check && wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
@@ -12,6 +12,7 @@
     "test": "vitest run",
     "card": "node scripts/gen-agent-card.mjs",
     "card:check": "node scripts/gen-agent-card.mjs --check",
+    "data-points": "node scripts/sync-data-points.mjs",
     "jwks": "node scripts/gen-jwks.mjs"
   },
   "dependencies": {

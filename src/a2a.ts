@@ -218,7 +218,7 @@ export class ElcTradeExecutor implements AgentExecutor {
 			}),
 		);
 
-		const reply = (text: string, state: TaskState) =>
+		const reply = (text: string, state: TaskState, payload?: { data?: unknown; signature?: unknown }) =>
 			bus.publish(
 				AgentEvent.statusUpdate({
 					taskId,
@@ -239,6 +239,17 @@ export class ElcTradeExecutor implements AgentExecutor {
 									filename: "",
 									mediaType: "text/plain",
 								},
+								// Machine-readable answer plus its signature, so A2A callers can verify too.
+								...(payload?.data
+									? [
+											{
+												content: { $case: "data" as const, value: { data: payload.data, signature: payload.signature } },
+												metadata: undefined,
+												filename: "",
+												mediaType: "application/json",
+											},
+										]
+									: []),
 							],
 							metadata: undefined,
 							extensions: [],
@@ -258,7 +269,7 @@ export class ElcTradeExecutor implements AgentExecutor {
 			}
 
 			const result = await dispatch(skill, args, this.ctx);
-			reply(result.report, TaskState.TASK_STATE_COMPLETED);
+			reply(result.report, TaskState.TASK_STATE_COMPLETED, { data: result.data, signature: result.signature });
 		} catch (err) {
 			// Bad arguments are recoverable: the caller named a real skill and can retry with
 			// the fields the error enumerates, so the task asks for input rather than dying.

@@ -64,6 +64,11 @@ const REPORT_OUTPUT = {
 	report: z.string().describe("The full human-readable report."),
 	source: z.string().describe("Canonical engineeringleaders.io page this answer derives from."),
 	verdict: z.string().optional().describe("Headline verdict, when the tool returns one."),
+	data: z.record(z.string(), z.unknown()).optional().describe("Machine-readable payload; this is what `signature` covers."),
+	signature: z
+		.object({ jws: z.string(), kid: z.string(), jwks_url: z.string(), signed: z.literal("data") })
+		.optional()
+		.describe("Detached JWS (RFC 7797) over the JCS-canonical form of `data`; verify against jwks_url."),
 };
 
 const USAGE_CONFIG: McpUsageConfig = {
@@ -89,7 +94,13 @@ function menuText(): string {
 function asToolResult(r: Awaited<ReturnType<typeof dispatch>>) {
 	return {
 		content: [{ type: "text" as const, text: r.report }],
-		structuredContent: { report: r.report, source: r.source, ...(r.verdict ? { verdict: r.verdict } : {}) },
+		structuredContent: {
+			report: r.report,
+			source: r.source,
+			...(r.verdict ? { verdict: r.verdict } : {}),
+			...(r.data ? { data: r.data } : {}),
+			...(r.signature ? { signature: r.signature } : {}),
+		},
 	};
 }
 

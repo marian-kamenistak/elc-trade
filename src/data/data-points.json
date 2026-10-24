@@ -1,0 +1,166 @@
+{
+	"rows": {
+		"elc_community.audience_titles": {
+			"label": "Member seniority breakdown by recorded title",
+			"value": "active_members: 3172; titled_profiles: 1263; cto_cio: 88; founders_execs: 132; vp: 44; directors_heads_of: 173; engineering_managers_team_leads: 289; staff_principal_architect: 112; product_leaders: 18; other_ic_unclassified: 407",
+			"display": "at least 88 CTOs, 44 VPs of Engineering, 173 Directors and Heads of Engineering, 289 Engineering Managers and 132 founders. Counted from the 1,263 member profiles with a recorded title, so every figure is a floor.",
+			"verified": "2026-08-05"
+		},
+		"elc_community.circles": {
+			"label": "Active ELC circles (peer cohorts)",
+			"value": 5,
+			"display": "5",
+			"verified": "2026-08-03"
+		},
+		"elc_community.cities": {
+			"label": "Meetup cities",
+			"value": "Prague, Brno, Bratislava, Kraków",
+			"display": "Prague, Brno, Bratislava and Kraków",
+			"verified": "2026-09-30"
+		},
+		"elc_community.derived_segments": {
+			"label": "Community segment splits (percent of members)",
+			"value": "Manager+ and Leadership: 69; Senior/Staff IC: 21",
+			"display": "69% Manager+ · 21% Senior/Staff IC",
+			"verified": "2026-08-03"
+		},
+		"elc_community.founded": {
+			"label": "Year founded",
+			"value": 2019,
+			"display": "2019",
+			"verified": "2026-08-03"
+		},
+		"elc_community.largest_claim": {
+			"label": "'Largest community of engineering leaders in Central Europe' claim",
+			"value": 3100,
+			"display": "The largest community of engineering leaders in Central Europe",
+			"verified": "2026-08-28"
+		},
+		"elc_community.linkedin_followers_elc": {
+			"label": "LinkedIn followers, Engineering Leaders Community company page",
+			"value": 2422,
+			"display": "2,400+",
+			"verified": "2026-09-30"
+		},
+		"elc_community.meetup_attendance": {
+			"label": "Registrations per meetup, headline form (quote as registrations, never as attendance)",
+			"value": 120,
+			"display": "120+",
+			"verified": "2026-09-30"
+		},
+		"elc_community.meetup_attendees": {
+			"label": "Attendees per meetup, headline for package copy",
+			"value": 100,
+			"display": "100+",
+			"verified": "2026-10-05"
+		},
+		"elc_community.meetups_held": {
+			"label": "Public meetups held to date",
+			"value": 40,
+			"display": "40+",
+			"verified": "2026-08-03"
+		},
+		"elc_community.meetups_per_year": {
+			"label": "Meetups per year",
+			"value": 12,
+			"display": "12",
+			"verified": "2026-08-03"
+		},
+		"elc_community.members": {
+			"label": "ELC community members",
+			"value": 3300,
+			"display": "3,300+",
+			"verified": "2026-09-21"
+		},
+		"elc_community.members_live": {
+			"label": "Exact live member count, as rendered on engineeringleaders.io",
+			"value": 3375,
+			"display": "3,375 members in September 2026",
+			"verified": "2026-09-21"
+		},
+		"elc_community.members_projected_2027": {
+			"label": "Projected members, 2027",
+			"value": 4000,
+			"display": "4,000 (projected)",
+			"verified": "2026-08-03"
+		},
+		"elc_community.newsletter_open_rate": {
+			"label": "Newsletter open rate",
+			"value": 54,
+			"display": "54%",
+			"verified": "2026-09-30"
+		},
+		"elc_community.newsletter_opens_per_issue": {
+			"label": "Unique opens per full-list newsletter send",
+			"value": 1570,
+			"display": "1,500+",
+			"verified": "2026-09-30"
+		},
+		"elc_community.newsletter_subscribers": {
+			"label": "Leaders' Brief newsletter subscribers",
+			"value": 2940,
+			"display": "2,900+",
+			"verified": "2026-09-30"
+		},
+		"elc_community.speakers": {
+			"label": "People who have spoken at an ELC meetup or conference",
+			"value": 80,
+			"display": "80",
+			"verified": "2026-10-05"
+		},
+		"elc_conference.attendee_composition": {
+			"label": "Conference attendee composition, #ELC2025",
+			"value": "engineering_leadership: 43.0; senior_ics_tech_leads: 22.6; founders_execs: 16.6; specialist: 8.9; product_delivery: 8.9",
+			"display": "43.0% Engineering Leadership · 22.6% Senior ICs and Tech Leads · 16.6% Founders and Execs · 8.9% Specialist · 8.9% Product and Delivery",
+			"verified": "2026-08-05"
+		},
+		"elc_conference.attendees_2026": {
+			"label": "ELC Conference 2026 attendees",
+			"value": 400,
+			"display": "400+",
+			"verified": "2026-10-14"
+		},
+		"elc_conference.attendees_target_2027": {
+			"label": "Conference attendees — 2027 target",
+			"value": 500,
+			"display": "500+ (target)",
+			"verified": "2026-10-14"
+		},
+		"elc_conference.conferences_held": {
+			"label": "Conferences held to date",
+			"value": 2,
+			"display": "2",
+			"verified": "2026-08-03"
+		},
+		"elc_conference.editions": {
+			"label": "Conference editions held",
+			"value": "2025, 2026",
+			"display": "2025 and 2026",
+			"verified": "2026-08-03"
+		},
+		"elc_conference.next_edition": {
+			"label": "Next conference",
+			"value": "2027-04-22",
+			"display": "22 April 2027",
+			"verified": "2026-10-08"
+		},
+		"elc_conference.rating": {
+			"label": "Attendee rating of the annual conference",
+			"value": 4.8,
+			"display": "4.8*",
+			"verified": "2026-08-04"
+		},
+		"elc_conference.speakers_count": {
+			"label": "Speakers at the annual conference",
+			"value": 20,
+			"display": "20+",
+			"verified": "2026-08-04"
+		},
+		"elc_conference.speakers_from": {
+			"label": "Notable speaker employers",
+			"value": "SpaceX, Superhuman, Netflix, Stripe, Meta, Microsoft, Financial Times, Apify",
+			"display": "speakers from SpaceX, Superhuman, Netflix, Stripe, Meta, Microsoft, Financial Times and Apify",
+			"verified": "2026-10-13"
+		}
+	}
+}
