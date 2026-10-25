@@ -20,8 +20,8 @@
  *   - `arguments: {}` — 28 calls across `quote_reach_combo` (10), `build_partnership_business_case`
  *     (7), `benchmark_leadership_ratio` (7) and `buy_reach` (4)
  *   - `oneoff_ids: []` — 5 more of the same question asked a different way
- *   - slug drift — `hosted_meetup` for `meetup-hosted` (4), `newsletter_section` for
- *     `newsletter-section`, `newsletter`, `job_listing`
+ *   - slug drift — `hosted_meetup` for `meetup-hosted` (4), `newsletter_section` for the
+ *     newsletter section slug (retired 2026-10-25), `newsletter`, `job_listing`
  *   - enum synonyms — `brand` for `brand_awareness` (4), `team`, `retention`
  *   - wrong field names entirely — `engineers: 120` where the tool wanted `senior_ics`
  *

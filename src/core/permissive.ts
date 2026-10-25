@@ -15,9 +15,9 @@
  * it as `meetup-hosted`, and the id normalisation is dead code on this transport.
  *
  * The cost is deliberate. MCP's `tools/list` no longer marks a field required and no longer
- * publishes the nine reach ids as a JSON Schema enum, so the contract moves into the
+ * publishes the reach ids as a JSON Schema enum, so the contract moves into the
  * description — which is where a model reading a tool actually looks, and which the registry
- * already writes out in full ("One or more of: newsletter-section, …"). A test asserts every
+ * already writes out in full ("One or more of: meetup-hosted, …"). A test asserts every
  * field has one. Container types survive, so an array is still an array. And the A2A card is
  * unaffected: a2a.ts builds it from `service.inputSchema` directly, not from this.
  */

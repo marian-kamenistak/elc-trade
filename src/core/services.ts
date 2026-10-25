@@ -17,21 +17,20 @@ import { z } from "zod";
 import type { ServiceDefinition } from "./types";
 
 /**
- * The ten one-off reach items, ids verified against catalog.yaml on 2026-10-05 (demo-session,
- * linkedin-post and webinar left /reach that day; conference-main-stage joined).
+ * The nine one-off reach items, ids verified against catalog.yaml on 2026-10-25 (the newsletter
+ * section and meetup presence items left /reach that day; newsletter-classified joined).
  * Prices live in the catalog, NOT here — this is the allowlist of what an agent may put
  * in a cart, so a typo'd id fails loudly instead of quoting a price that does not exist.
- * `job-listing` is excluded from combo discounts by catalog policy.
+ * `job-listing` and `newsletter-classified` are excluded from combo discounts by catalog policy.
  */
 export const ONEOFF_IDS = [
 	"meetup-hosted",
 	"speaker-development",
 	"conference-main-stage",
 	"newsletter-dedicated",
-	"newsletter-section",
+	"newsletter-classified",
 	"dinner",
 	"podcast-episode",
-	"meetup-presence",
 	"survey",
 	"job-listing",
 ] as const;
@@ -106,11 +105,11 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "buy_reach",
 		title: "Buy reach in the ELC community",
 		description:
-			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's ten published one-off reach items — an ELC meetup, the speaker programme (a ladder for one engineer, from a meetup slot to the full coached programme), a conference main-stage talk, dedicated newsletter, newsletter section, decision-maker dinner, podcast episode, your name on three meetup evenings, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
+			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's nine published one-off reach items — an ELC meetup, the speaker programme (a ladder for one engineer, from a meetup slot to the full coached programme), a conference main-stage talk, dedicated newsletter, a newsletter classified (30 words and a link, tools and events only, never jobs), decision-maker dinner, podcast episode, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
 		tags: ["reach", "partnership", "pricing", "marketing"],
 		examples: [
 			"We want to reach engineering leaders in Prague. What can we buy and what does it cost?",
-			"Quote us a newsletter section plus a podcast episode.",
+			"Quote us a dedicated newsletter plus a podcast episode.",
 		],
 		kind: "access",
 		price: { model: "quote", fromEur: 500 },
@@ -126,7 +125,7 @@ export const SERVICES: ServiceDefinition[] = [
 			oneoff_ids: z
 				.array(z.enum(ONEOFF_IDS))
 				.min(1)
-				.describe("Which one-off reach items to quote. One or more of: meetup-hosted, speaker-development, conference-main-stage, newsletter-dedicated, newsletter-section, dinner, podcast-episode, meetup-presence, survey, job-listing. Combo discount applies automatically."),
+				.describe("Which one-off reach items to quote. One or more of: meetup-hosted, speaker-development, conference-main-stage, newsletter-dedicated, newsletter-classified, dinner, podcast-episode, survey, job-listing. Combo discount applies automatically."),
 			// 2026-10-20: speaker-development is a ladder. Forwarded to quote_reach_combo as-is;
 			// omit it for the full programme at the bundle price. Stage is always included.
 			speaker_rungs: z

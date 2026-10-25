@@ -71,7 +71,7 @@ describe("message content", () => {
 				{ SLACK_BOT_TOKEN_ELC: "xoxb-test", A2A_TRADE_SLACK_CHANNEL: "C0BUX9AP9V3" },
 				{
 					service: svc("buy_reach"),
-					args: { company: "Ataccama", oneoff_ids: ["newsletter-section"], internal_note: "ignore me" },
+					args: { company: "Ataccama", oneoff_ids: ["newsletter-classified"], internal_note: "ignore me" },
 					result: res(),
 					transport: "a2a",
 				},
@@ -80,7 +80,7 @@ describe("message content", () => {
 			globalThis.fetch = original;
 		}
 		expect(sent).toContain("Ataccama");
-		expect(sent).toContain("newsletter-section");
+		expect(sent).toContain("newsletter-classified");
 		expect(sent).toContain("No money has moved");
 		expect(sent).not.toContain("ignore me");
 	});

@@ -165,8 +165,8 @@ describe("argument recovery", () => {
 
 	it("accepts a one-off id in the other word order or with underscores", () => {
 		expect(normalizeOneoffIds({ oneoff_ids: ["hosted_meetup"] })).toEqual({ oneoff_ids: ["meetup-hosted"] });
-		expect(normalizeOneoffIds({ oneoff_ids: ["Newsletter_Section", "PODCAST-EPISODE"] })).toEqual({
-			oneoff_ids: ["newsletter-section", "podcast-episode"],
+		expect(normalizeOneoffIds({ oneoff_ids: ["Newsletter_Classified", "PODCAST-EPISODE"] })).toEqual({
+			oneoff_ids: ["newsletter-classified", "podcast-episode"],
 		});
 	});
 

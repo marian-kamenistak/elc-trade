@@ -35,7 +35,7 @@ const ROUTES: { re: RegExp; tool: string; why: string }[] = [
 	{
 		re: /\b(reach|advertise|advertis|sponsor|newsletter|podcast|promote|campaign|get in front of|inzer|propagac)\b/i,
 		tool: "buy_reach",
-		why: "You want to put something in front of the community. `buy_reach` prices the ten published one-off items and takes an optional budget.",
+		why: "You want to put something in front of the community. `buy_reach` prices the nine published one-off items and takes an optional budget.",
 	},
 	{
 		re: /\b(budget|justify|business case|approval|cfo|procurement|internal case|rozpočet|schválen)\b/i,
