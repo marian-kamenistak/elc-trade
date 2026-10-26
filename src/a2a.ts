@@ -102,7 +102,7 @@ export function buildAgentCard(): AgentCard {
 	return {
 		name: "Engineering Leaders Community",
 		description:
-			"Agent-callable services from the Engineering Leaders Community: meetup topic evaluation, speaker stage placement, and community reach — grounded in 3,300+ CEE engineering leaders and 12 meetups a year at 120+ attendees since 2019.",
+			"Agent-callable services from the Engineering Leaders Community: meetup topic evaluation, speaker stage placement, and community reach — grounded in 3,500+ CEE engineering leaders and 12 meetups a year at 120+ attendees since 2019.",
 		version: "1.0.0",
 		iconUrl: `${ORIGIN}/favicon/icon-192.png`,
 		documentationUrl: `${ORIGIN}/agents/`,

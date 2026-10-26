@@ -105,7 +105,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "buy_reach",
 		title: "Buy reach in the ELC community",
 		description:
-			"Answers 'how do we get in front of 3,300+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's nine published one-off reach items — an ELC meetup, the speaker programme (a ladder for one engineer, from a meetup slot to the full coached programme), a conference main-stage talk, dedicated newsletter, a newsletter classified (30 words and a link, tools and events only, never jobs), decision-maker dinner, podcast episode, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
+			"Answers 'how do we get in front of 3,500+ CEE engineering leaders, and what does it cost?' Builds a cart from ELC's nine published one-off reach items — an ELC meetup, the speaker programme (a ladder for one engineer, from a meetup slot to the full coached programme), a conference main-stage talk, dedicated newsletter, a newsletter classified (30 words and a link, tools and events only, never jobs), decision-maker dinner, podcast episode, community survey, job listing — applies the published combo discount, and returns a decision-ready quote a human can sign.",
 		tags: ["reach", "partnership", "pricing", "marketing"],
 		examples: [
 			"We want to reach engineering leaders in Prague. What can we buy and what does it cost?",
@@ -412,7 +412,7 @@ export const SERVICES: ServiceDefinition[] = [
 		id: "post_job",
 		title: "Post a role to the ELC community",
 		description:
-			"Answers 'how do we get this role in front of engineering leaders in Central Europe?' Submits a role to the ELC job board plus a newsletter mention, in front of 3,300+ members.",
+			"Answers 'how do we get this role in front of engineering leaders in Central Europe?' Submits a role to the ELC job board plus a newsletter mention, in front of 3,500+ members.",
 		tags: ["hiring", "jobs", "reach", "talent"],
 		examples: ["We're hiring a VP of Engineering in Prague. Can we post it to your community?"],
 		kind: "access",

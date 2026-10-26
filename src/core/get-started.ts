@@ -95,7 +95,7 @@ export function getStarted(
 		report: [
 			head,
 			"",
-			"ELC is a community of 3,300+ engineering leaders across Prague, Brno, Bratislava and Kraków, running since 2019.",
+			"ELC is a community of 3,500+ engineering leaders across Prague, Brno, Bratislava and Kraków, running since 2019.",
 			"",
 			...routed,
 			"## What you can call",
