@@ -56,6 +56,8 @@
 	"services": [
 		{ "binding": "TOOLKIT", "service": "elc-toolkit" },
 		{ "binding": "PARTNERSHIP", "service": "elc-partnership-builder" },
+		// Nightly-run reports → control-room (automation-visibility R-W), secret CONTROL_ROOM_TOKEN.
+		{ "binding": "CONTROL_ROOM", "service": "control-room" },
 	],
 	"kv_namespaces": [
 		// Shared with all five existing MCP servers — session stitching for Slack threading.

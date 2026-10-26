@@ -103,6 +103,10 @@ export interface NightlyEnv extends SourcesEnv {
 	LEADER_SIZE_BANDS?: string;
 	SLACK_BOT_TOKEN_ELC?: string;
 	WARNING_SLACK_CHANNEL?: string;
+	CONTROL_ROOM?: Fetcher;
+	CONTROL_ROOM_TOKEN?: string;
+	/** Test only: `wrangler deploy --var REPORT_JOB_ID:zz-...` files the run report under a zz- id. */
+	REPORT_JOB_ID?: string;
 }
 
 /**
@@ -141,8 +145,45 @@ export async function runNightlySnapshots(
 }
 
 /** The Worker's `scheduled` handler. Awaited, never waitUntil (R23): the run must finish inside it. */
-export async function nightlyScheduled(_controller: ScheduledController, env: NightlyEnv, _ctx: ExecutionContext): Promise<void> {
-	await runNightlySnapshots(env);
+export async function nightlyScheduled(controller: ScheduledController, env: NightlyEnv, _ctx: ExecutionContext): Promise<void> {
+	const started = Date.now();
+	const stored = await runNightlySnapshots(env);
+	await reportRun(env, controller.scheduledTime ?? started, started, stored);
+}
+
+/**
+ * Every nightly run lands in control-room (automation-visibility R-W, 2026-10-26) through the
+ * CONTROL_ROOM service binding: a same-account workers.dev fetch 404s. Awaited like the run (R23).
+ * Never throws: a report failure must not touch the snapshots.
+ */
+async function reportRun(env: NightlyEnv, scheduledTime: number, started: number, stored: StoredSnapshot[] | null): Promise<void> {
+	if (!env.CONTROL_ROOM || !env.CONTROL_ROOM_TOKEN) return;
+	const job = env.REPORT_JOB_ID || "elc-trade";
+	try {
+		const res = await env.CONTROL_ROOM.fetch("https://control-room/report", {
+			method: "POST",
+			headers: { "content-type": "application/json", "x-report-token": env.CONTROL_ROOM_TOKEN },
+			body: JSON.stringify({
+				run_id: `${job}:${scheduledTime}`,
+				job_id: job,
+				status: stored ? "success" : "failed",
+				runtime: "worker",
+				source: "worker",
+				host: "elc-trade",
+				finished_at: new Date().toISOString(),
+				duration_s: (Date.now() - started) / 1000,
+				exit_code: stored ? 0 : 1,
+				kpi: `${stored?.length ?? 0} snapshots written`,
+				kpi_pass: stored ? "yes" : "no",
+				detail: stored
+					? stored.map((s) => `${s.method_id} ${s.as_of}`).join(", ")
+					: "nightly snapshots failed, nothing new written; stage and error are in the Worker log and #m-warning-bot",
+			}),
+		});
+		if (!res.ok) console.error(`[elc-trade snapshots] run report failed: HTTP ${res.status}`);
+	} catch (e) {
+		console.error(`[elc-trade snapshots] run report failed: ${String(e).slice(0, 200)}`);
+	}
 }
 
 async function reportFailure(env: NightlyEnv, stage: string, err: unknown): Promise<void> {

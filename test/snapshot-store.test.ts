@@ -219,3 +219,49 @@ describe("scheduled handler (R23)", () => {
 		expect(objects.size).toBe(0);
 	});
 });
+
+describe("run report (automation-visibility R-W)", () => {
+	it("reports a failed nightly run to control-room through the service binding", async () => {
+		const { bucket } = memoryBucket();
+		const posted: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
+		const CONTROL_ROOM = {
+			fetch: async (url: string, init: RequestInit) => {
+				posted.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+				return new Response("{}", { status: 202 });
+			},
+		} as unknown as Fetcher;
+		const realError = console.error;
+		console.error = () => {};
+		try {
+			await nightlyScheduled({ scheduledTime: 1_761_448_500_000 } as ScheduledController, { SNAPSHOTS: bucket, CONTROL_ROOM, CONTROL_ROOM_TOKEN: "t" }, {} as ExecutionContext);
+		} finally {
+			console.error = realError;
+		}
+		expect(posted).toHaveLength(1);
+		expect(posted[0].url).toBe("https://control-room/report");
+		expect(posted[0].headers["x-report-token"]).toBe("t");
+		expect(posted[0].body).toMatchObject({
+			run_id: "elc-trade:1761448500000",
+			job_id: "elc-trade",
+			status: "failed",
+			runtime: "worker",
+			source: "worker",
+			kpi: "0 snapshots written",
+			kpi_pass: "no",
+		});
+	});
+
+	it("never throws when control-room is down", async () => {
+		const { bucket } = memoryBucket();
+		const CONTROL_ROOM = { fetch: async () => { throw new Error("down"); } } as unknown as Fetcher;
+		const realError = console.error;
+		console.error = () => {};
+		try {
+			await expect(
+				nightlyScheduled({} as ScheduledController, { SNAPSHOTS: bucket, CONTROL_ROOM, CONTROL_ROOM_TOKEN: "t" }, {} as ExecutionContext),
+			).resolves.toBeUndefined();
+		} finally {
+			console.error = realError;
+		}
+	});
+});
