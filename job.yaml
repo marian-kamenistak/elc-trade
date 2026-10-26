@@ -1,0 +1,37 @@
+# job.yaml (P3-REGISTRY). Format + rules: agentic-os projects/briefs/automation-visibility/phase2/job-yaml-schema.md
+# Check: node ~/ai/_platform/control-room/scripts/registry.ts check <this file>
+schema: 1
+id: elc-trade
+catalogue_id: CF-08 elc-trade
+title: ELC trade nightly snapshot (hash-chained)
+status: active
+streams: [elc]
+purpose: sync
+entity: null
+owner: marian
+sender: none
+runtime:
+  kind: worker
+  repo: marian-kamenistak/elc-trade
+  path: .
+  entry: elc-trade
+schedule:
+- owner: native
+  cron: 15 3 * * *
+  tz: UTC
+  grace_min: 720
+kpi:
+  name: nightly snapshot written, chain verifies
+  unit: snapshots
+  target: 1
+  warn: 1
+  direction: gte
+test:
+  command: npm test
+  dry_run: PLACEHOLDER_DRY_RUN
+autofix:
+  allowed: false
+  max_attempts: 0
+manual_minutes_per_run: 42
+manual_minutes_source: estimate
+docs: CLAUDE.md
