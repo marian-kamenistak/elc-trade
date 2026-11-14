@@ -68,15 +68,15 @@
 		},
 		"elc_community.members": {
 			"label": "ELC community members",
-			"value": 3500,
-			"display": "3,500+",
-			"verified": "2026-10-25"
+			"value": 3600,
+			"display": "3,600+",
+			"verified": "2026-11-04"
 		},
 		"elc_community.members_live": {
 			"label": "Exact live member count, as rendered on engineeringleaders.io",
-			"value": 3583,
-			"display": "3,583 members in October 2026",
-			"verified": "2026-10-25"
+			"value": 3635,
+			"display": "3,635 members in November 2026",
+			"verified": "2026-11-04"
 		},
 		"elc_community.newsletter_open_rate": {
 			"label": "Newsletter open rate",
@@ -136,7 +136,7 @@
 			"label": "Next conference",
 			"value": "2027-04-22",
 			"display": "22 April 2027",
-			"verified": "2026-10-08"
+			"verified": "2026-11-01"
 		},
 		"elc_conference.rating": {
 			"label": "Attendee rating of the annual conference",

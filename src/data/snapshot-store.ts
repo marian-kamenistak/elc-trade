@@ -101,8 +101,6 @@ export async function readLatest(bucket: R2Bucket, method: MethodId): Promise<St
 export interface NightlyEnv extends SourcesEnv {
 	SNAPSHOTS: R2Bucket;
 	LEADER_SIZE_BANDS?: string;
-	SLACK_BOT_TOKEN_ELC?: string;
-	WARNING_SLACK_CHANNEL?: string;
 	CONTROL_ROOM?: Fetcher;
 	CONTROL_ROOM_TOKEN?: string;
 	/** Test only: `wrangler deploy --var REPORT_JOB_ID:zz-...` files the run report under a zz- id. */
@@ -113,33 +111,35 @@ export interface NightlyEnv extends SourcesEnv {
  * Fetch, aggregate all three, link all three to their chains, then write. Everything that can fail
  * on bad input runs before the first put, so a loader, suppression or chain failure leaves
  * yesterday's snapshots untouched rather than publishing a partial set.
- * Ruling R18: any failure is logged, nothing is written, and #m-warning-bot gets one message, so a
- * silently stale snapshot cannot go unnoticed. Never throws.
+ * Ruling R18: any failure is logged and nothing is written; nightlyScheduled reports the run as `failed` to
+ * control-room, which pages #warning-bot once (merge S5, 2026-11-14: this function no longer posts to Slack
+ * itself, so one break is one alert). `onFailure` receives the stage name for the run report. Never throws.
  */
 export async function runNightlySnapshots(
 	env: NightlyEnv,
 	load: (env: SourcesEnv) => Promise<SourceData> = fetchSourceData,
+	onFailure: (stage: string) => void = () => {},
 ): Promise<StoredSnapshot[] | null> {
 	let bodies: SnapshotBody[];
 	try {
 		const src = await load(env);
 		bodies = [memberCensus(src), leaderComposition(src, { sizeBands: env.LEADER_SIZE_BANDS === "1" }), meetupBenchmarks(src)];
 	} catch (err) {
-		await reportFailure(env, "fetch/aggregate", err);
+		reportFailure("fetch/aggregate", err, onFailure);
 		return null;
 	}
 	const prepared: Prepared[] = [];
 	try {
 		for (const body of bodies) prepared.push(await prepareSnapshot(env.SNAPSHOTS, body));
 	} catch (err) {
-		await reportFailure(env, "snapshot chain", err);
+		reportFailure("snapshot chain", err, onFailure);
 		return null;
 	}
 	try {
 		for (const p of prepared) await putPrepared(env.SNAPSHOTS, p);
 		return prepared.map((p) => p.stored);
 	} catch (err) {
-		await reportFailure(env, "R2 write", err);
+		reportFailure("R2 write", err, onFailure);
 		return null;
 	}
 }
@@ -147,8 +147,9 @@ export async function runNightlySnapshots(
 /** The Worker's `scheduled` handler. Awaited, never waitUntil (R23): the run must finish inside it. */
 export async function nightlyScheduled(controller: ScheduledController, env: NightlyEnv, _ctx: ExecutionContext): Promise<void> {
 	const started = Date.now();
-	const stored = await runNightlySnapshots(env);
-	await reportRun(env, controller.scheduledTime ?? started, started, stored);
+	let failedStage = "";
+	const stored = await runNightlySnapshots(env, undefined, (stage) => { failedStage = stage; });
+	await reportRun(env, controller.scheduledTime ?? started, started, stored, failedStage);
 }
 
 /**
@@ -156,8 +157,12 @@ export async function nightlyScheduled(controller: ScheduledController, env: Nig
  * CONTROL_ROOM service binding: a same-account workers.dev fetch 404s. Awaited like the run (R23).
  * Never throws: a report failure must not touch the snapshots.
  */
-async function reportRun(env: NightlyEnv, scheduledTime: number, started: number, stored: StoredSnapshot[] | null): Promise<void> {
-	if (!env.CONTROL_ROOM || !env.CONTROL_ROOM_TOKEN) return;
+async function reportRun(env: NightlyEnv, scheduledTime: number, started: number, stored: StoredSnapshot[] | null, failedStage = ""): Promise<void> {
+	if (!env.CONTROL_ROOM || !env.CONTROL_ROOM_TOKEN) {
+		// No Slack fallback since merge S5: a failure with no binding is not paged by anything, so say so in the log.
+		if (!stored) console.error("[elc-trade snapshots] FAILED run not reported: CONTROL_ROOM binding or token missing");
+		return;
+	}
 	const job = env.REPORT_JOB_ID || "elc-trade";
 	try {
 		const res = await env.CONTROL_ROOM.fetch("https://control-room/report", {
@@ -177,7 +182,7 @@ async function reportRun(env: NightlyEnv, scheduledTime: number, started: number
 				kpi_pass: stored ? "yes" : "no",
 				detail: stored
 					? stored.map((s) => `${s.method_id} ${s.as_of}`).join(", ")
-					: "nightly snapshots failed, nothing new written; stage and error are in the Worker log and #m-warning-bot",
+					: `nightly snapshots failed at ${failedStage || "an unknown stage"}, nothing new written; the error is in the Worker log`,
 			}),
 		});
 		if (!res.ok) console.error(`[elc-trade snapshots] run report failed: HTTP ${res.status}`);
@@ -186,34 +191,9 @@ async function reportRun(env: NightlyEnv, scheduledTime: number, started: number
 	}
 }
 
-async function reportFailure(env: NightlyEnv, stage: string, err: unknown): Promise<void> {
+function reportFailure(stage: string, err: unknown, onFailure: (stage: string) => void): void {
 	const msg = (err instanceof Error ? err.message : String(err)).slice(0, 300);
 	const outcome = stage === "R2 write" ? "earlier methods may hold today's file" : "nothing was written";
 	console.error(`[elc-trade snapshots] ${stage} failed, ${outcome}: ${msg}`);
-	const token = env.SLACK_BOT_TOKEN_ELC;
-	const channel = env.WARNING_SLACK_CHANNEL;
-	if (!token || !channel) return;
-	const text = `:warning: *elc-trade nightly snapshots failed* (${stage}): ${outcome}; agents keep getting the previous snapshot.\n\`${msg}\``;
-	const post = () =>
-		fetch("https://slack.com/api/chat.postMessage", {
-			method: "POST",
-			headers: { "content-type": "application/json; charset=utf-8", authorization: `Bearer ${token}` },
-			body: JSON.stringify({ channel, text, unfurl_links: false }),
-		});
-	try {
-		// Slack answers HTTP 200 on failure: data.ok is the truth.
-		const data = (await (await post()).json()) as { ok?: boolean; error?: string };
-		if (!data.ok && data.error === "not_in_channel") {
-			await fetch("https://slack.com/api/conversations.join", {
-				method: "POST",
-				headers: { "content-type": "application/json; charset=utf-8", authorization: `Bearer ${token}` },
-				body: JSON.stringify({ channel }),
-			});
-			await post();
-		} else if (!data.ok) {
-			console.error(`[elc-trade snapshots] Slack alert failed: ${data.error}`);
-		}
-	} catch (e) {
-		console.error(`[elc-trade snapshots] Slack alert failed: ${String(e).slice(0, 200)}`);
-	}
+	onFailure(stage);
 }

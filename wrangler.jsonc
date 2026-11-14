@@ -100,8 +100,6 @@
 		"MPP_RECIPIENT": "0xE89E9dE0914fC5ab648D2eDBf710415b782866d6",
 		// CAIP-2. eip155:84532 = Base Sepolia (testnet), eip155:8453 = Base mainnet.
 		"X402_NETWORK": "eip155:84532",
-		// #m-warning-bot (C0BMYMBHD32): the nightly snapshot job posts here when it fails and writes nothing.
-		"WARNING_SLACK_CHANNEL": "C0BMYMBHD32",
 		// G2: the seniority x size-band table ships off until Marian clears it. "1" turns it on.
 		"LEADER_SIZE_BANDS": "0",
 		// Answer signing (src/trust/sign.ts). The public key is safe in the repo; the private half is

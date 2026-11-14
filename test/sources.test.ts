@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchSourceData, projectCompany, projectPerson, recordsById } from "../src/data/sources";
-import { runNightlySnapshots } from "../src/data/snapshot-store";
+import { nightlyScheduled, runNightlySnapshots } from "../src/data/snapshot-store";
 
 const PII = ["jane@example.com", "Jane Doe"];
 const realFetch = globalThis.fetch;
@@ -53,20 +53,21 @@ describe("errors never carry response bodies", () => {
 		for (const s of PII) expect(err.message).not.toContain(s);
 	});
 
-	it("the Slack alert for that failure contains neither the name nor the email", async () => {
+	it("the control-room run report and the log for that failure contain neither the name nor the email, and no Slack post is made", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const calls = mockFetch((url) => {
-			if (url.startsWith("https://slack.com")) return Response.json({ ok: true });
 			if (url.startsWith("https://api.attio.com"))
 				return new Response(JSON.stringify({ code: "validation_type", message: "Jane Doe <jane@example.com>" }), { status: 400 });
 			return lumaEmpty();
 		});
 		const bucket = { get: async () => null, put: async () => ({}) } as unknown as R2Bucket;
-		const out = await runNightlySnapshots({ ...env, SNAPSHOTS: bucket, SLACK_BOT_TOKEN_ELC: "xoxb-test", WARNING_SLACK_CHANNEL: "C0BMYMBHD32" });
-		expect(out).toBeNull();
-		const slack = calls.filter((c) => c.url.startsWith("https://slack.com"));
-		expect(slack).toHaveLength(1);
-		for (const s of PII) expect(slack[0].body).not.toContain(s);
+		const posted: string[] = [];
+		const CONTROL_ROOM = { fetch: async (_u: string, init: RequestInit) => { posted.push(String(init.body)); return new Response("{}", { status: 202 }); } } as unknown as Fetcher;
+		await nightlyScheduled({ scheduledTime: 1 } as ScheduledController, { ...env, SNAPSHOTS: bucket, CONTROL_ROOM, CONTROL_ROOM_TOKEN: "t" }, {} as ExecutionContext);
+		expect(calls.filter((c) => c.url.startsWith("https://slack.com"))).toHaveLength(0);
+		expect(posted).toHaveLength(1);
+		expect(JSON.parse(posted[0]).status).toBe("failed");
+		for (const s of PII) expect(posted[0]).not.toContain(s);
 		for (const s of PII) expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(s);
 	});
 });

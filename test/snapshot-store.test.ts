@@ -115,7 +115,7 @@ describe("nightly job", () => {
 		expect(JSON.stringify([...objects.values()])).not.toMatch(/companyId|"c\d+"/);
 	});
 
-	it("writes nothing and posts one Slack alert when a fetch fails", async () => {
+	it("writes nothing and posts no Slack message when a fetch fails (control-room pages it once)", async () => {
 		const { bucket, objects } = memoryBucket();
 		const calls: { url: string; body: string }[] = [];
 		const realFetch = globalThis.fetch;
@@ -125,12 +125,14 @@ describe("nightly job", () => {
 			return new Response(JSON.stringify({ ok: true }));
 		}) as typeof fetch;
 		console.error = () => {};
+		let stage = "";
 		try {
 			const out = await runNightlySnapshots(
-				{ SNAPSHOTS: bucket, SLACK_BOT_TOKEN_ELC: "xoxb-test", WARNING_SLACK_CHANNEL: "C0BMYMBHD32" },
+				{ SNAPSHOTS: bucket },
 				async () => {
 					throw new Error("Attio POST /lists -> 503");
 				},
+				(s) => { stage = s; },
 			);
 			expect(out).toBeNull();
 		} finally {
@@ -138,9 +140,8 @@ describe("nightly job", () => {
 			console.error = realError;
 		}
 		expect(objects.size).toBe(0);
-		expect(calls).toHaveLength(1);
-		expect(calls[0].url).toBe("https://slack.com/api/chat.postMessage");
-		expect(JSON.parse(calls[0].body).channel).toBe("C0BMYMBHD32");
+		expect(stage).toBe("fetch/aggregate");
+		expect(calls.filter((c) => c.url.includes("slack.com"))).toHaveLength(0);
 	});
 });
 
@@ -249,6 +250,20 @@ describe("run report (automation-visibility R-W)", () => {
 			kpi: "0 snapshots written",
 			kpi_pass: "no",
 		});
+		expect(String(posted[0].body.detail)).toContain("failed at ");
+	});
+
+	it("a failed run with no control-room binding says so in the log (nothing else would page it)", async () => {
+		const { bucket } = memoryBucket();
+		const errors: string[] = [];
+		const realError = console.error;
+		console.error = (...a: unknown[]) => { errors.push(a.join(" ")); };
+		try {
+			await nightlyScheduled({} as ScheduledController, { SNAPSHOTS: bucket }, {} as ExecutionContext);
+		} finally {
+			console.error = realError;
+		}
+		expect(errors.some((e) => e.includes("FAILED run not reported"))).toBe(true);
 	});
 
 	it("never throws when control-room is down", async () => {
