@@ -62,12 +62,12 @@ describe("errors never carry response bodies", () => {
 		});
 		const bucket = { get: async () => null, put: async () => ({}) } as unknown as R2Bucket;
 		const posted: string[] = [];
-		const CONTROL_ROOM = { fetch: async (_u: string, init: RequestInit) => { posted.push(String(init.body)); return new Response("{}", { status: 202 }); } } as unknown as Fetcher;
+		const CONTROL_ROOM = { fetch: async (_u: string, init: RequestInit) => { if (init.method === "POST") posted.push(String(init.body)); return new Response("{}", { status: 202 }); } } as unknown as Fetcher;
 		await nightlyScheduled({ scheduledTime: 1 } as ScheduledController, { ...env, SNAPSHOTS: bucket, CONTROL_ROOM, CONTROL_ROOM_TOKEN: "t" }, {} as ExecutionContext);
 		expect(calls.filter((c) => c.url.startsWith("https://slack.com"))).toHaveLength(0);
-		expect(posted).toHaveLength(1);
-		expect(JSON.parse(posted[0]).status).toBe("failed");
-		for (const s of PII) expect(posted[0]).not.toContain(s);
+		expect(posted.map((b) => JSON.parse(b).event ?? "end")).toEqual(["start", "end"]); // start event, then the one end report
+		expect(JSON.parse(posted[1]).status).toBe("failed");
+		for (const s of PII) expect(posted.join("\n")).not.toContain(s);
 		for (const s of PII) expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(s);
 	});
 });

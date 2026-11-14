@@ -227,7 +227,7 @@ describe("run report (automation-visibility R-W)", () => {
 		const posted: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
 		const CONTROL_ROOM = {
 			fetch: async (url: string, init: RequestInit) => {
-				posted.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+				posted.push({ url, headers: init.headers as Record<string, string>, body: init.body ? JSON.parse(String(init.body)) : null });
 				return new Response("{}", { status: 202 });
 			},
 		} as unknown as Fetcher;
@@ -238,6 +238,8 @@ describe("run report (automation-visibility R-W)", () => {
 		} finally {
 			console.error = realError;
 		}
+		// The pause check (GET), the start event and the end report; the end report is the last POST.
+		posted.splice(0, posted.length, ...posted.filter((p) => p.body && (p.body as { event?: string }).event === undefined && p.url === "https://control-room/report"));
 		expect(posted).toHaveLength(1);
 		expect(posted[0].url).toBe("https://control-room/report");
 		expect(posted[0].headers["x-report-token"]).toBe("t");
@@ -278,5 +280,95 @@ describe("run report (automation-visibility R-W)", () => {
 		} finally {
 			console.error = realError;
 		}
+	});
+});
+
+describe("operating standard v2 (2026-11-14)", () => {
+	const src = (): SourceData => ({
+		asOf: "2026-11-14",
+		activeMembers: 40,
+		members: Array.from({ length: 40 }, (_, i) => ({ title: i % 2 ? "Engineering Manager" : "CTO", sizeBand: "1k+" as const, employerCountry: "CZ", companyId: `c${i}` })),
+		conference: [],
+		events: [],
+	});
+	function controlRoom(pause?: { by: string; why: string }) {
+		const calls: { method: string; path: string; body: Record<string, any> | null }[] = [];
+		const binding = {
+			fetch: async (u: string, init: RequestInit = {}) => {
+				const path = new URL(u).pathname;
+				calls.push({ method: init.method ?? "GET", path, body: init.body ? JSON.parse(String(init.body)) : null });
+				if (path.startsWith("/api/pause/")) return new Response(JSON.stringify({ ok: true, paused: !!pause, ...pause }), { status: 200 });
+				return new Response("{}", { status: 202 });
+			},
+		} as unknown as Fetcher;
+		return { binding, calls, posts: () => calls.filter((c) => c.method === "POST").map((c) => c.body as Record<string, any>) };
+	}
+	const sched = { scheduledTime: Date.UTC(2026, 10, 14, 3, 15) } as ScheduledController;
+
+	it("a good night is a live run: pause check, start, a step per stage, one end report with iterations, steps and the deploy version", async () => {
+		const { bucket } = memoryBucket(); const cr = controlRoom();
+		await nightlyScheduled(sched, { SNAPSHOTS: bucket, CONTROL_ROOM: cr.binding, CONTROL_ROOM_TOKEN: "t", CF_VERSION_METADATA: { id: "ver-1" } } as never, {} as ExecutionContext, async () => src());
+		expect(cr.calls[0].path).toBe("/api/pause/elc-trade");
+		expect(cr.posts().map((b) => b.event ?? "end")).toEqual(["start", "step", "step", "step", "step", "end"]);
+		expect(cr.posts().at(-1)).toMatchObject({ job_id: "elc-trade", status: "success", kpi: "3 snapshots written", kpi_pass: "yes", iterations: 3, version: "ver-1", run_id: `elc-trade:${sched.scheduledTime}` });
+		expect(cr.posts().at(-1)!.steps).toHaveLength(4);
+	});
+
+	it("gate path: paused from the web keeps yesterday's snapshots, reads nothing, writes nothing and reports paused (not a failure)", async () => {
+		const { bucket, objects } = memoryBucket(); const cr = controlRoom({ by: "marian@kamenistak.com", why: "Attio schema change" });
+		let loaded = 0;
+		await nightlyScheduled(sched, { SNAPSHOTS: bucket, CONTROL_ROOM: cr.binding, CONTROL_ROOM_TOKEN: "t" } as never, {} as ExecutionContext, async () => (loaded++, src()));
+		expect(loaded).toBe(0); expect(objects.size).toBe(0);
+		expect(cr.posts()).toHaveLength(1);
+		expect(cr.posts()[0]).toMatchObject({ status: "paused" });
+		expect(cr.posts()[0].detail).toMatch(/paused by marian: Attio schema change/);
+	});
+
+	it("failure path: a failing source reports failed with the stage and the error, after the start event", async () => {
+		const { bucket, objects } = memoryBucket(); const cr = controlRoom();
+		const realError = console.error; console.error = () => {};
+		try {
+			await nightlyScheduled(sched, { SNAPSHOTS: bucket, CONTROL_ROOM: cr.binding, CONTROL_ROOM_TOKEN: "t" } as never, {} as ExecutionContext, async () => { throw new Error("Attio POST /lists -> 503"); });
+		} finally { console.error = realError; }
+		expect(objects.size).toBe(0);
+		expect(cr.posts().map((b) => b.event ?? "end")).toEqual(["start", "end"]);
+		const end = cr.posts()[1];
+		expect(end).toMatchObject({ status: "failed", kpi_pass: "no", iterations: 0 });
+		expect(end.errors[0]).toMatch(/^fetch\/aggregate: Attio POST \/lists -> 503/);
+	});
+
+	it("resume: a run that broke after the first R2 put continues with the missing methods and never re-chains the one already written", async () => {
+		const { bucket, objects } = memoryBucket();
+		const real = (bucket as unknown as { put: (k: string, v: string) => Promise<unknown> }).put.bind(bucket);
+		let puts = 0;
+		(bucket as unknown as { put: (k: string, v: string) => Promise<unknown> }).put = async (k, v) => {
+			// the first method's two puts (dated + latest) succeed, the next one fails
+			if (puts++ >= 2) throw new Error("R2 503");
+			return real(k, v);
+		};
+		const realError = console.error; console.error = () => {};
+		try { expect(await runNightlySnapshots({ SNAPSHOTS: bucket }, async () => src())).toBeNull(); } finally { console.error = realError; }
+		const first = JSON.parse(objects.get("snapshots/member_census/latest.json")!);
+		expect(objects.has("snapshots/leader_composition/latest.json")).toBe(false);
+
+		(bucket as unknown as { put: typeof real }).put = real;
+		const stored = await runNightlySnapshots({ SNAPSHOTS: bucket }, async () => src());
+		expect(stored?.map((s) => s.method_id)).toEqual(["member_census", "leader_composition", "meetup_benchmarks"]);
+		const after = JSON.parse(objects.get("snapshots/member_census/latest.json")!);
+		expect(after.sha256).toBe(first.sha256); expect(after.prev_sha256).toBe(first.prev_sha256); // untouched, not linked to itself
+		expect(objects.has("snapshots/leader_composition/latest.json")).toBe(true);
+		expect(await readLatest(bucket, "member_census")).not.toBeNull();
+	});
+
+	it("idempotent: a second run the same day writes nothing new", async () => {
+		const { bucket, objects } = memoryBucket();
+		await runNightlySnapshots({ SNAPSHOTS: bucket }, async () => src());
+		const before = new Map(objects);
+		let puts = 0;
+		const real = (bucket as unknown as { put: (k: string, v: string) => Promise<unknown> }).put.bind(bucket);
+		(bucket as unknown as { put: typeof real }).put = async (k, v) => (puts++, real(k, v));
+		const again = await runNightlySnapshots({ SNAPSHOTS: bucket }, async () => src());
+		expect(puts).toBe(0); expect(again).toHaveLength(3);
+		expect([...objects.entries()]).toEqual([...before.entries()]);
 	});
 });

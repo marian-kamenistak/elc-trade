@@ -68,6 +68,8 @@
 	],
 	// Nightly member/meetup snapshots (src/data/). 03:15 UTC, after member-sync's overnight runs.
 	"triggers": { "crons": ["15 3 * * *"] },
+	// The deploy id of this version, sent as `version` in every run report (control-room job page "Changes").
+	"version_metadata": { "binding": "CF_VERSION_METADATA" },
 	"r2_buckets": [{ "binding": "SNAPSHOTS", "bucket_name": "elc-trade-snapshots" }],
 	// Paid data products (src/paid.ts): 10 gated calls per payer per minute. namespace_id is an
 	// account-unique integer we pick; no other Worker in the estate uses rate limiting (2026-10-24).
