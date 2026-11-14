@@ -28,7 +28,7 @@ kpi:
   direction: gte
 test:
   command: npm test
-  dry_run: PLACEHOLDER_DRY_RUN
+  dry_run: set -a && . ~/.env && set +a && npx vite-node scripts/dry-run.ts
 autofix:
   allowed: false
   max_attempts: 0
