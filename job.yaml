@@ -39,9 +39,9 @@ docs: CLAUDE.md
 triage: approval
 depends_on: []
 runbook:
-- Open the job page and read the last run's steps: load members and events, aggregate, link hash chain, write to R2.
+- 'Open the job page and read the last run''s steps: load members and events, aggregate, link hash chain, write to R2.'
 - A failed run names the stage and nothing new was written; yesterday's snapshots stay valid, and control-room pages it once.
-- Attio or Luma down is the usual cause: tomorrow's run recovers on its own. A hash-chain failure means latest.json fails verification, so do not overwrite it and ask Marian.
+- 'Attio or Luma down is the usual cause: tomorrow''s run recovers on its own. A hash-chain failure means latest.json fails verification, so do not overwrite it and ask Marian.'
 - Pause from the control-room page to stop the nightly run; the live MCP and A2A tools keep serving the last snapshots.
 - A repeated run the same day never rewrites a method already written for that day (resume, no forked chain).
 inputs:
