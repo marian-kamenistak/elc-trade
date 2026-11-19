@@ -27,6 +27,18 @@ export interface OneOffQuotePayload {
 
 const eur = (n: number) => `€${n.toLocaleString("en-US")}`;
 
+/** Readable names for the one-off ids that count toward the combo (job-listing and
+ *  newsletter-classified never do), so the hint can name what to add. */
+const COMBO_ITEM_NAMES: Record<string, string> = {
+	"meetup-hosted": "a hosted meetup",
+	"speaker-development": "the speaker programme",
+	"conference-main-stage": "a conference main-stage talk",
+	"newsletter-dedicated": "a dedicated newsletter",
+	dinner: "a decision-maker dinner",
+	"podcast-episode": "a podcast episode",
+	survey: "a community survey",
+};
+
 /** Pulls the leading JSON object out of the sibling's report, leaving any trailing terms text. */
 export function splitQuote(report: string): { payload?: OneOffQuotePayload; rest: string } {
 	const start = report.indexOf("{");
@@ -56,6 +68,19 @@ export function splitQuote(report: string): { payload?: OneOffQuotePayload; rest
  * knew the prices could not take a budget, and the tool that took a budget would not name a
  * price, so "what fits in 18,000?" was structurally unanswerable across the whole surface.
  */
+/** Only the no-combo case has a threshold to name: one qualifying item, two needed. Which item
+ *  would reach it is any combo-eligible id not already in the cart; prices stay with the quote
+ *  tool, so the hint says to re-quote with that id rather than guessing a figure. */
+function comboHint(q: OneOffQuotePayload, left: number): string {
+	if (q.combo || left < 500) return "";
+	const inCart = new Set(q.items.map((i) => i.id));
+	const options = Object.keys(COMBO_ITEM_NAMES)
+		.filter((id) => !inCart.has(id))
+		.slice(0, 3);
+	if (q.items.filter((i) => i.counts_toward_combo).length !== 1 || !options.length) return "";
+	return ` One more qualifying item reaches the two-item combo threshold, for example ${options.map((id) => `${COMBO_ITEM_NAMES[id]} (\`${id}\`)`).join(", ")}. Re-quote with the id added to see whether it still fits.`;
+}
+
 export function renderQuote(q: OneOffQuotePayload, budgetEur?: number): string {
 	const lines: string[] = [];
 	lines.push(`# One-off quote — ${eur(q.total)}, excl. VAT`, "");
@@ -85,7 +110,7 @@ export function renderQuote(q: OneOffQuotePayload, budgetEur?: number): string {
 		if (q.total <= budgetEur) {
 			const left = budgetEur - q.total;
 			lines.push(
-				`Against your ${eur(budgetEur)}: this fits, with ${eur(left)} left.${left >= 500 ? " Adding one more item may also raise the combo discount — worth re-quoting before you commit." : ""}`,
+				`Against your ${eur(budgetEur)}: this fits, with ${eur(left)} left.${comboHint(q, left)}`,
 			);
 		} else {
 			const over = q.total - budgetEur;

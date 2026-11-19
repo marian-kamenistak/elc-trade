@@ -387,7 +387,7 @@ export async function dispatch(
 		}
 
 		const bridged: ServiceResult = {
-			report: rewritten + ignored + FREE_MEMBERSHIP_FOOTER,
+			report: rewritten + ignored + footerFor(service.id),
 			source: `https://www.engineeringleaders.io${service.sourcePath}`,
 			// No `bridged_from`. Which internal server answered is this repo's plumbing and was
 			// being rendered to buyers as part of their quote; renaming the key did not hide it,
@@ -404,7 +404,7 @@ export async function dispatch(
 		const amountUsd = service.price.model === "metered" ? service.price.amountUsd : 0;
 		const outcome = ctx?.pay ? await ctx.pay({ amountUsd, methodId: method }) : undefined;
 		const result = await paidDataHandler(id, ctx?.env, { transport: ctx?.transport ?? "mcp", outcome });
-		const paid = await signDataResult(service, { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER }, ctx?.env);
+		const paid = await signDataResult(service, { ...result, report: result.report + footerFor(service.id) }, ctx?.env);
 		announce(service, args, paid, ctx);
 		return paid;
 	}
@@ -419,7 +419,7 @@ export async function dispatch(
 	}
 
 	const result = await handler(args, ctx?.env);
-	const local: ServiceResult = await signDataResult(service, { ...result, report: result.report + FREE_MEMBERSHIP_FOOTER }, ctx?.env);
+	const local: ServiceResult = await signDataResult(service, { ...result, report: result.report + footerFor(service.id) }, ctx?.env);
 	announce(service, args, local, ctx);
 	return local;
 }
@@ -449,7 +449,11 @@ export async function signDataResult(service: ServiceDefinition, result: Service
 }
 
 /**
- * On every service, including the free ones.
+ * Only on the services where buying or joining is the next step (a quote, a business case, a job
+ * post). The general line, that membership is free for engineering leaders, lives once in the
+ * server `instructions` (src/index.ts) and in get_started, not on every answer (2026-11-19).
+ *
+ * Originally on every service, including the free ones.
  *
  * Two personas — an individual engineer and a new engineering manager, both exactly the people
  * ELC exists for — went through the whole surface and never learned membership is free for
@@ -457,6 +461,9 @@ export async function signDataResult(service: ServiceDefinition, result: Service
  * why the room is good rather than as an offer. Three of six tools carried a `/join/` link and
  * none of them said the word "free".
  */
+const SELL_NEXT = new Set(["buy_reach", "build_partnership_business_case", "post_job"]);
+const footerFor = (id: string): string => (SELL_NEXT.has(id) ? FREE_MEMBERSHIP_FOOTER : "");
+
 const FREE_MEMBERSHIP_FOOTER =
 	"\n\n---\n\n_ELC membership is **free for engineering leaders** — 12 monthly meetups, the newsletter, the community Slack and every past talk. Join at https://www.engineeringleaders.io/join/. Companies fund it, which is what keeps it free for the room._";
 

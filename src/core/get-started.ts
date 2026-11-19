@@ -95,7 +95,8 @@ export function getStarted(
 		report: [
 			head,
 			"",
-			"ELC is a community of 3,500+ engineering leaders across Prague, Brno, Bratislava and Kraków, running since 2019.",
+			// ELC Data Points registry key elc_community.members, display 3,700+ (Notion, read 2026-11-19).
+			"ELC is a community of 3,700+ engineering leaders across Prague, Brno, Bratislava and Kraków, running since 2019.",
 			"",
 			...routed,
 			"## What you can call",
