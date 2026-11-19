@@ -94,6 +94,9 @@ function menuText(): string {
 	].join("\n");
 }
 
+/** Bridged data services (benchmark_leadership_ratio) carry no signed payload, only text. */
+const signsData = (s: { kind: string; bridge?: unknown }) => s.kind === "data" && !s.bridge;
+
 function asToolResult(
 	r: Awaited<ReturnType<typeof dispatch>>,
 	structured: boolean,
@@ -165,7 +168,7 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 				{
 					title: service.title,
 					annotations: { ...READ_ONLY },
-					...(service.kind === "data" ? { outputSchema: REPORT_OUTPUT } : {}),
+					...(signsData(service) ? { outputSchema: REPORT_OUTPUT } : {}),
 					description: service.description,
 					// Not service.inputSchema. See core/permissive.ts: the SDK rejects before the
 					// handler runs, so dispatch has to be the one that validates if a caller is
@@ -182,7 +185,7 @@ export class ElcTrade extends McpAgent<Env, unknown, McpGeo> {
 						waitUntil: (p) => this.ctx.waitUntil(p),
 						pay: async (c) => (outcome = await gatePaid(this.env as unknown as PaidEnv, { ...c, request: extra })),
 					});
-					return withPayment(asToolResult(result, service.kind === "data"), outcome);
+					return withPayment(asToolResult(result, signsData(service)), outcome);
 				},
 			);
 		}
