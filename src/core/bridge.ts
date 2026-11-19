@@ -112,6 +112,32 @@ export class BridgeError extends Error {
  * Throws BridgeError rather than returning a plausible-looking empty answer — a bridged
  * skill that silently degrades would be worse than one that is honestly unavailable.
  */
+/**
+ * Typed data from a sibling's REST layer (mcp-launch Phase 9), for callers that render their
+ * own briefing. The sibling's MCP text is a briefing for agents, not a contract to parse
+ * (Marian 2026-11-19). Returns null on any failure so the caller can fall back to the MCP text;
+ * a 400 carries the sibling's own error message.
+ */
+export async function fetchSiblingApi<T>(
+	env: BridgeBindings,
+	endpoint: EndpointName,
+	path: string,
+): Promise<{ ok: true; data: T } | { ok: false; error?: string } | null> {
+	const svc = env[BINDING[endpoint]];
+	if (!svc?.fetch) return null;
+	try {
+		const res = await svc.fetch(new Request(`${ENDPOINTS[endpoint]}/api${path}`, { headers: { accept: "application/json" } }));
+		if (res.status === 400) {
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			return { ok: false, error: body.error };
+		}
+		if (!res.ok) return null;
+		return { ok: true, data: (await res.json()) as T };
+	} catch {
+		return null;
+	}
+}
+
 export async function callSibling(
 	env: BridgeBindings,
 	endpoint: EndpointName,

@@ -17,8 +17,8 @@ import { LIVE_SERVICES, ONEOFF_IDS, SERVICES } from "./services";
 import type { ServiceDefinition, ServiceResult } from "./types";
 import { evaluateMeetupTopic } from "./meetup-topic";
 import { assessSpeakerReadiness } from "./speaker-readiness";
-import { callSibling, type BridgeBindings } from "./bridge";
-import { renderQuote, splitQuote } from "./quote-render";
+import { callSibling, fetchSiblingApi, type BridgeBindings } from "./bridge";
+import { renderQuote, splitQuote, type OneOffQuotePayload } from "./quote-render";
 import { getStarted } from "./get-started";
 import { extractSpeakerEvidence, extractTopicEvidence, type ExtractEnv } from "./extract";
 import { type DealsEnv, isDealworthy, notifyDeal } from "./deals";
@@ -94,6 +94,23 @@ const SIBLING_TOOL_REWRITES: [RegExp, string][] = [
 	[/\bmatch_package\b|\bcustomize_package\b|\bfit_to_budget\b|\bdesign_journey\b|\brequest_offer\b/g,
 		"the Membership Builder at https://www.engineeringleaders.io/mcp/partnership"],
 ];
+
+/** The one-off quote from the partnership builder's REST API, with the notes its MCP payload
+ *  used to carry (duplicates, membership hint, next step) derived from the same figures. */
+async function quoteViaApi(env: BridgeBindings, args: Record<string, unknown>) {
+	const ids = Array.isArray(args.oneoff_ids) ? (args.oneoff_ids as string[]) : [];
+	const qs = new URLSearchParams({ oneoff_ids: ids.join(",") });
+	if (Array.isArray(args.speaker_rungs)) qs.set("speaker_rungs", (args.speaker_rungs as string[]).join(","));
+	const res = await fetchSiblingApi<OneOffQuotePayload & { duplicate_ids?: string[] }>(env, "partnership", `/reach/quote?${qs}`);
+	if (!res?.ok) return res;
+	const q = res.data;
+	if (q.duplicate_ids?.length && !q.duplicate_note)
+		q.duplicate_note = `Sent more than once and counted once: ${q.duplicate_ids.join(", ")}. Each one-off is a single placement sold once; to run it repeatedly, ask for separate dated placements.`;
+	if (q.items.length >= 3 && !q.membership_hint)
+		q.membership_hint = "Three or more one-offs is usually where a company membership costs less for more. build_partnership_business_case compares the two; the one-offs are 100% credited if they take it.";
+	if (!q.next) q.next = "fix the dates with Marian at https://www.engineeringleaders.io/reach/?ref=mcp. Every one-off is confirmed by a person, nothing is booked automatically.";
+	return res;
+}
 
 function rewriteSiblingNames(text: string, service: ServiceDefinition): string {
 	let out = service.bridge ? text.replaceAll(service.bridge.tool, service.id) : text;
@@ -353,6 +370,25 @@ export async function dispatch(
 			throw new Error(
 				`Service "${id}" is bridged to ${service.bridge.endpoint} but dispatch was called without service bindings.`,
 			);
+		}
+		// buy_reach renders its own quote from the sibling's typed REST data. Its MCP answer is
+		// a markdown briefing since 2026-11-19 and carries no budget fit.
+		if (service.id === "buy_reach") {
+			const quoted = await quoteViaApi(ctx.env, args);
+			if (quoted && !quoted.ok && quoted.error) throw new Error(rewriteSiblingNames(quoted.error, service));
+			if (quoted?.ok) {
+				const ignoredNote = unknownKeys.length
+					? `\n\n---\n\n**Ignored: ${unknownKeys.map((k) => `\`${k}\``).join(", ")}.** Not part of this service; no effect on the quote above. Accepted arguments: ${Object.keys(service.inputSchema).join(", ")}.`
+					: "";
+				const budget = typeof args.budget_eur === "number" ? args.budget_eur : undefined;
+				const result: ServiceResult = {
+					report: renderQuote(quoted.data, budget) + ignoredNote + footerFor(service.id),
+					source: `https://www.engineeringleaders.io${service.sourcePath}`,
+					data: undefined,
+				};
+				announce(service, args, result, ctx);
+				return result;
+			}
 		}
 		let report: string;
 		try {
