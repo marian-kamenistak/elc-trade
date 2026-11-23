@@ -70,13 +70,13 @@
 			"label": "ELC community members",
 			"value": 3700,
 			"display": "3,700+",
-			"verified": "2026-11-18"
+			"verified": "2026-11-19"
 		},
 		"elc_community.members_live": {
 			"label": "Exact live member count, as rendered on engineeringleaders.io",
-			"value": 3705,
-			"display": "3,705 members in November 2026",
-			"verified": "2026-11-18"
+			"value": 3710,
+			"display": "3,710 members in November 2026",
+			"verified": "2026-11-19"
 		},
 		"elc_community.newsletter_open_rate": {
 			"label": "Newsletter open rate",
