@@ -21,6 +21,8 @@ export interface SourcesEnv {
 const ATTIO = "https://api.attio.com/v2";
 const LUMA = "https://public-api.luma.com/v1";
 const TIMEOUT_MS = 30_000;
+// One hung request (2026-11-23 03:15: Attio or Luma past 30 s) used to fail the whole nightly run; retry it like a 5xx.
+const isTimeout = (e: unknown) => (e as Error | undefined)?.name === "TimeoutError";
 /** Attio's `$in` filter refuses somewhere between 100 and 200 values. */
 const IN_BATCH = 100;
 const PAGE = 500;
@@ -74,12 +76,18 @@ interface AttioEntry {
 
 async function attio<T>(token: string, path: string, body: unknown, retries = 4): Promise<T> {
 	for (let attempt = 0; ; attempt++) {
-		const res = await fetch(`${ATTIO}${path}`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-			body: JSON.stringify(body),
-			signal: AbortSignal.timeout(TIMEOUT_MS),
-		});
+		let res: Response;
+		try {
+			res = await fetch(`${ATTIO}${path}`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+				body: JSON.stringify(body),
+				signal: AbortSignal.timeout(TIMEOUT_MS),
+			});
+		} catch (e) {
+			if (isTimeout(e) && attempt < retries) continue;
+			throw e;
+		}
 		if ((res.status === 429 || res.status >= 500) && attempt < retries) {
 			const reset = Number(res.headers.get("ratelimit-reset"));
 			await sleep(Math.min(Number.isFinite(reset) && reset > 0 ? reset * 1000 : 2 ** attempt * 500, 30_000));
@@ -240,10 +248,16 @@ function lumaClient(key: string) {
 				const wait = LUMA_PACE_MS - (Date.now() - last);
 				if (wait > 0) await sleep(wait);
 				last = Date.now();
-				const res = await fetch(`${LUMA}${path}?${qs}`, {
-					headers: { "x-luma-api-key": key },
-					signal: AbortSignal.timeout(TIMEOUT_MS),
-				});
+				let res: Response;
+				try {
+					res = await fetch(`${LUMA}${path}?${qs}`, {
+						headers: { "x-luma-api-key": key },
+						signal: AbortSignal.timeout(TIMEOUT_MS),
+					});
+				} catch (e) {
+					if (isTimeout(e) && attempt < 4) continue;
+					throw e;
+				}
 				if ((res.status === 429 || res.status >= 500) && attempt < 4) {
 					await sleep(Math.min(2 ** attempt * 1000, 30_000));
 					continue;

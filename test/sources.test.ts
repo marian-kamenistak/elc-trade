@@ -22,6 +22,25 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+describe("timeouts are retried", () => {
+	it("an Attio and a Luma request that time out once succeed on the retry", async () => {
+		vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => (fn(), 0)) as never);
+		const seen = new Set<string>();
+		mockFetch((url) => {
+			const host = new URL(url).host;
+			if (!seen.has(host)) {
+				seen.add(host);
+				throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+			}
+			return host === "api.attio.com" ? Response.json({ data: [] }) : lumaEmpty();
+		});
+		// Empty data then fails a later check; what matters is that it is not the timeout.
+		const err = (await fetchSourceData({ ATTIO_TOKEN: "t", LUMA_API_KEY: "k" }).catch((e) => e)) as Error;
+		expect(err?.name).not.toBe("TimeoutError");
+		expect(seen).toEqual(new Set(["api.attio.com", "public-api.luma.com"]));
+	});
+});
+
 describe("errors never carry response bodies", () => {
 	const env = { ATTIO_TOKEN: "t", LUMA_API_KEY: "k" };
 
